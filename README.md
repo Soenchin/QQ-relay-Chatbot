@@ -1,10 +1,13 @@
 # QQ Group Chat Relay Bot
 交流群🐧🤖940358918
+
 一个基于 **SnowLuma + WebSocket** 的 QQ 群聊机器人，支持双模 AI 分流（直调/管道）、骰子、主动发言，同样兼容 **NapCatQQ**。
 
 > SnowLuma: https://github.com/SnowLuma/SnowLuma
+> 
 > NapCatQQ: https://github.com/NapNeko/NapCatQQ
-
+>
+推荐使用Agent一键安装：“给我按照这个项目部署一个QQ机器人”
 ## 目录
 
 1. [项目概述](#1-项目概述)
@@ -49,6 +52,7 @@ QQ 群消息 → SnowLuma / NapCatQQ (WebSocket) → relay.py (过滤 + 分流)
 
 | 组件 | 说明 |
 |------|------|
+| 一个闲置QQ号 | 机器人本体 |
 | Python 3.13+ | relay.py 运行环境 |
 | Node.js (npm) | 管道模式 AI 后端依赖 |
 | SnowLuma（或 NapCatQQ） | QQ 协议实现，提供 OneBot v11 WebSocket 接口 |
