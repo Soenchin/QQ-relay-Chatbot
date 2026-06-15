@@ -1,5 +1,5 @@
 # QQ Group Chat Relay Bot
-
+交流群🐧🤖940358918
 一个基于 **SnowLuma + WebSocket** 的 QQ 群聊机器人，支持双模 AI 分流（直调/管道）、骰子、主动发言，同样兼容 **NapCatQQ**。
 
 > SnowLuma: https://github.com/SnowLuma/SnowLuma
