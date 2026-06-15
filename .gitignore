@@ -1,0 +1,25 @@
+# ─── 敏感信息 ───
+.env
+
+# ─── Python 缓存 ───
+__pycache__/
+*.pyc
+*.pyo
+
+# ─── 备份文件 ───
+relay.py.old
+
+# ─── Windows 垃圾 ───
+Thumbs.db
+Desktop.ini
+
+# ─── 系统/编辑器 ───
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── 运行时数据 ───
+memory/
+.workbuddy/
