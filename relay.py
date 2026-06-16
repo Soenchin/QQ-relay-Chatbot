@@ -577,19 +577,17 @@ class RelayBot:
         return ""
 
     def _split_message(self, msg: str) -> list[str]:
-        """将长消息拆分，避免一句话一条。
-        优先在段落边界拆，段落内只拆超过 200 字的句子。"""
-        if len(msg) <= 200:
+        """拆分长消息。
+        - ≤30 字 → 不拆分
+        - >30 字 → 在句尾（。！？）拆，每段尽量 ≤100 字
+        - 不按段落拆，避免空行变多条消息"""
+        if len(msg) <= 30:
             return [msg]
-        # 先按段落拆
-        paras = [p.strip() for p in msg.split("\n") if p.strip()]
-        if len(paras) >= 2:
-            return paras
-        # 单段落太长才按句拆，但合并短句
+
         chunks, buf = [], ""
         for ch in msg:
             buf += ch
-            if ch in "。！？\n" and len(buf) >= 60:
+            if ch in "。！？" and len(buf) >= 30:
                 chunks.append(buf.strip())
                 buf = ""
         if buf.strip():
@@ -599,11 +597,14 @@ class RelayBot:
     async def send_group(self, gid: int, msg: str):
         if not self.ws or self.ws.close_code is not None:
             return
-        for chunk in self._split_message(msg):
+        chunks = self._split_message(msg)
+        for i, chunk in enumerate(chunks):
             await self.ws.send(json.dumps({
                 "action": "send_group_msg",
                 "params": {"group_id": gid, "message": chunk},
             }))
+            if i < len(chunks) - 1:
+                await asyncio.sleep(0.4)
 
 
 # ============ HTTP 图床 ============
