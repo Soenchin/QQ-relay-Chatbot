@@ -507,11 +507,9 @@ def pipe_session_id(gid: int) -> str:
 **问题**：Windows 下消息中的换行符丢失
 **解决**：消息通过 `stdin` 而非命令行参数传入。如果是旧版本（命令行参数传消息），必须改成 stdin 方式。
 
-### 踩坑记忆
+### 已知问题
 
-- **改 persona.md 后需重启** relay 才生效，因为人设是启动时一次性加载的。
-- **别让进程查 `Get-Process` 误判** — `py` 启动器在 `Get-Process` 中看不到。用 `Get-CimInstance Win32_Process -Filter "name like '%python%'"` 替代。
-- **去重缓存在内存中**，重启后丢失。SnowLuma 重连后可能重推旧消息，但 FIFO 淘汰机制不会让缓存无限制增长。
+- **偶现回复附带引号** 排查中
 
 ---
 
