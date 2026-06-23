@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Soenchin
+# SPDX-License-Identifier: AGPL-3.0
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
 """
 QQ relay — dice + AI chat
 Connects to OneBot v11 WebSocket, handles all group messages.
