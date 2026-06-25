@@ -54,8 +54,7 @@ MASTER_QQ = int(os.getenv("MASTER_QQ", "0"))
 #   {"123456789":"direct","987654321":"pipe"}
 GROUP_MODE_RAW = os.getenv("GROUP_MODE", "")
 if GROUP_MODE_RAW:
-    import json
-    GROUP_MODE = json.loads(GROUP_MODE_RAW)
+    GROUP_MODE = {int(k): v for k, v in json.loads(GROUP_MODE_RAW).items()}
 else:
     GROUP_MODE = {}
 FALLBACK_MODE = os.getenv("FALLBACK_MODE", "direct")

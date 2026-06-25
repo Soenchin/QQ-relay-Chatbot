@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QQ Bot Relay · WebUI</title>
+    <title>QQ Bot Relay - WebUI</title>
     <link rel="stylesheet" href="static/app.css">
 </head>
 <body>
-    <!-- 侧边栏 -->
+    <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <h1>QQ Bot Relay</h1>
@@ -18,24 +18,27 @@
         </div>
         <nav class="sidebar-nav" id="nav">
             <a class="nav-item active" data-view="dashboard" href="#/dashboard">
-                <span class="nav-icon">📊</span> 仪表盘
+                <span class="nav-icon">&#x1F4CA;</span> 仪表盘
+            </a>
+            <a class="nav-item" data-view="group-config" href="#/group-config">
+                <span class="nav-icon">&#x2699;&#xFE0F;</span> 群设置
             </a>
             <a class="nav-item" data-view="pipe-status" href="#/pipe-status">
-                <span class="nav-icon">🔧</span> 管道状态
+                <span class="nav-icon">&#x1F527;</span> 管道状态
             </a>
             <a class="nav-item" data-view="knowledge" href="#/knowledge">
-                <span class="nav-icon">📚</span> 知识库
+                <span class="nav-icon">&#x1F4DA;</span> 知识库
             </a>
             <a class="nav-item" data-view="send" href="#/send">
-                <span class="nav-icon">✉️</span> 发消息
+                <span class="nav-icon">&#x2709;&#xFE0F;</span> 发消息
             </a>
         </nav>
         <div class="sidebar-footer">
-            <button class="btn btn-outline btn-sm btn-block" id="btn-reload-global">🔄 重载人设</button>
+            <button class="btn btn-outline btn-sm btn-block" id="btn-reload-global">&#x1F504; 重载人设</button>
         </div>
     </aside>
 
-    <!-- 主内容 -->
+    <!-- Main Content -->
     <main class="main-content" id="content">
         <div id="app-view">
             <div class="loading">加载中</div>

@@ -1,6 +1,6 @@
 """
-WebUI — FastAPI 后端 for QQ relay bot
-提供 REST API + WebSocket 实时推送 + 静态文件服务
+WebUI — FastAPI backend for QQ relay bot
+Provides REST API + WebSocket real-time push + static file serving
 """
 
 import asyncio
@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# ============ 路径 ============
+# ============ Paths ============
 BOT_NAME = os.getenv("BOT_NAME", "QQ Bot")
 
 MEM_DIR = Path(os.getenv("MEM_DIR", str(Path(__file__).parent / "memory")))
@@ -28,11 +28,57 @@ CONV_DIR = MEM_DIR / "conv"
 PERSONA_FILE = MEM_DIR / "persona.md"
 
 STATIC_DIR = Path(__file__).parent / "static"
+ENV_PATH = Path(__file__).parent / ".env"
+
+
+# ============ .env Helpers ============
+def read_env_file() -> dict:
+    """Read .env file into a dict."""
+    result = {}
+    if ENV_PATH.exists():
+        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                result[k.strip()] = v.strip()
+    return result
+
+
+def write_env_file(updates: dict) -> None:
+    """Write updates to .env file, preserving comments and order."""
+    lines = []
+    if ENV_PATH.exists():
+        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+
+    # Build a set of keys we're updating
+    update_keys = set(updates.keys())
+    updated = set()
+    new_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            k, v = stripped.split("=", 1)
+            k = k.strip()
+            if k in update_keys:
+                new_lines.append(f"{k}={updates[k]}")
+                updated.add(k)
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    # Append any new keys not found
+    for k, v in updates.items():
+        if k not in updated:
+            new_lines.append(f"{k}={v}")
+
+    ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
 
 # ============ EventBus ============
 class EventBus:
-    """异步发布-订阅，relay.py 通过它推送实时事件到 WebSocket 客户端"""
+    """Async pub-sub, relay.py pushes real-time events to WebSocket clients via this."""
 
     def __init__(self, maxsize: int = 500):
         self._subscribers: list[asyncio.Queue] = []
@@ -66,7 +112,7 @@ class EventBus:
 
 # ============ LogCapture ============
 class LogCapture:
-    """拦截 print 输出，同时写 stdout 和内存队列"""
+    """Intercept print output, write to both stdout and in-memory queue."""
 
     def __init__(self, max_lines: int = 1000):
         self._lines = deque(maxlen=max_lines)
@@ -112,44 +158,91 @@ class GroupConfigUpdate(BaseModel):
     mode: str | None = None
     pipe_threshold: int | None = None
 
+
 class SendMessageRequest(BaseModel):
     group_id: int
     message: str
 
+
 class KnowledgeUpdate(BaseModel):
     content: str
+
 
 class PersonaUpdate(BaseModel):
     content: str
 
 
+class EnvConfigUpdate(BaseModel):
+    group_mode: str | None = None
+    fallback_mode: str | None = None
+
+
 # ============ FastAPI App ============
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时
     yield
-    # 关闭时
-    # 清理资源
 
 
 def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
-    """创建 FastAPI 应用"""
     app = FastAPI(lifespan=lifespan, title=f"{BOT_NAME} Relay WebUI")
 
-    # 存引用
     app.state.relay_bot = relay_bot
     app.state.eventbus = eventbus or EventBus()
 
-    # 静态文件（SPA）
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # ============ 配置 ============
+    # ============ Config ============
     @app.get("/api/config")
     async def get_config():
         return {"bot_name": BOT_NAME}
 
-    # ============ 仪表盘 ============
+    # ============ Env Config (Group Mode) ============
+    @app.get("/api/env-config")
+    async def get_env_config():
+        """Read current .env group mode configuration."""
+        env = read_env_file()
+        group_mode_raw = env.get("GROUP_MODE", "")
+        group_mode = {}
+        if group_mode_raw:
+            try:
+                group_mode = {int(k): v for k, v in json.loads(group_mode_raw).items()}
+            except Exception:
+                pass
+        return {
+            "group_mode": group_mode,
+            "fallback_mode": env.get("FALLBACK_MODE", "direct"),
+            "group_mode_raw": group_mode_raw,
+        }
+
+    @app.put("/api/env-config")
+    async def update_env_config(data: EnvConfigUpdate):
+        """Write group mode configuration to .env file. Requires restart to take effect."""
+        updates = {}
+        if data.group_mode is not None:
+            # Validate JSON
+            try:
+                parsed = json.loads(data.group_mode)
+                if not isinstance(parsed, dict):
+                    raise HTTPException(422, "group_mode must be a JSON object")
+                for k, v in parsed.items():
+                    if v not in ("direct", "pipe"):
+                        raise HTTPException(422, f"mode for group {k} must be 'direct' or 'pipe'")
+                updates["GROUP_MODE"] = data.group_mode
+            except json.JSONDecodeError as e:
+                raise HTTPException(422, f"Invalid JSON: {e}")
+        if data.fallback_mode is not None:
+            if data.fallback_mode not in ("direct", "pipe"):
+                raise HTTPException(422, "fallback_mode must be 'direct' or 'pipe'")
+            updates["FALLBACK_MODE"] = data.fallback_mode
+
+        if not updates:
+            raise HTTPException(422, "No fields to update")
+
+        write_env_file(updates)
+        return {"ok": True, "updated": list(updates.keys()), "restart_required": True}
+
+    # ============ Dashboard ============
     @app.get("/api/status")
     async def get_status():
         bot = app.state.relay_bot
@@ -188,7 +281,6 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
 
     @app.get("/api/pipe-state")
     async def get_pipe_state():
-        """管道群详细状态 — 用于管道状态面板"""
         bot = app.state.relay_bot
         if not bot:
             return {"groups": [], "pipe_groups": []}
@@ -207,7 +299,6 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
 
     @app.post("/api/pipe-state/reload")
     async def reload_persona_from_webui():
-        """一键重载人设+知识库"""
         bot = app.state.relay_bot
         if not bot:
             raise HTTPException(404, "机器人未启动")
@@ -235,7 +326,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
             bot.pipe_persona = PERSONA_FILE.read_text(encoding="utf-8").strip()
         return {"ok": True}
 
-    # ============ 群管理 ============
+    # ============ Group Management ============
     @app.get("/api/groups")
     async def list_groups():
         bot = app.state.relay_bot
@@ -251,7 +342,6 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
                 "threshold": bot._pipe_thresholds.get(gid, None),
                 "counter": bot._pipe_counters.get(gid, 0) if hasattr(bot, '_pipe_counters') else 0,
             })
-        # 按群号排序
         result.sort(key=lambda x: x["gid"])
         return result
 
@@ -284,20 +374,20 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
         changes = []
         if update.mode is not None:
             if update.mode not in ("direct", "pipe"):
-                raise HTTPException(422, "mode 必须是 direct 或 pipe")
+                raise HTTPException(422, "mode must be direct or pipe")
             bot.GROUP_MODE[gid] = update.mode
-            changes.append(f"mode → {update.mode}")
+            changes.append(f"mode -> {update.mode}")
 
         if update.pipe_threshold is not None:
             if update.pipe_threshold < 1 or update.pipe_threshold > 100:
-                raise HTTPException(422, "pipe_threshold 须在 1-100 之间")
+                raise HTTPException(422, "pipe_threshold must be 1-100")
             if hasattr(bot, '_pipe_thresholds'):
                 bot._pipe_thresholds[gid] = update.pipe_threshold
-            changes.append(f"threshold → {update.pipe_threshold}")
+            changes.append(f"threshold -> {update.pipe_threshold}")
 
         return {"ok": True, "changes": changes, "gid": gid}
 
-    # ============ 对话历史 ============
+    # ============ Chat History ============
     @app.get("/api/groups/{gid}/history")
     async def get_history(gid: int, limit: int = 50, offset: int = 0):
         bot = app.state.relay_bot
@@ -328,7 +418,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
             headers={"Content-Disposition": f"attachment; filename=conv-{gid}.json"},
         )
 
-    # ============ 手动发消息 ============
+    # ============ Manual Send ============
     @app.post("/api/send")
     async def send_message(req: SendMessageRequest):
         bot = app.state.relay_bot
@@ -346,7 +436,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
         except Exception as e:
             raise HTTPException(500, f"发送失败: {e}")
 
-    # ============ 知识库 ============
+    # ============ Knowledge Base ============
     @app.get("/api/knowledge")
     async def list_knowledge():
         if not KNOWLEDGE_DIR.exists():
@@ -390,7 +480,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
         fpath.unlink()
         return {"ok": True, "name": fpath.name}
 
-    # ============ 人设 ============
+    # ============ Persona ============
     @app.get("/api/persona")
     async def get_persona():
         if not PERSONA_FILE.exists():
@@ -409,15 +499,13 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
         if not bot:
             raise HTTPException(404, "机器人未启动")
         if hasattr(bot, 'load_persona'):
-            # relay.py 顶层 load_persona 函数
             import relay
             bot.persona = relay.load_persona()
-        # 也重载 pipe_persona
         if hasattr(bot, 'pipe_persona') and PERSONA_FILE.exists():
             bot.pipe_persona = PERSONA_FILE.read_text(encoding="utf-8").strip()
         return {"ok": True}
 
-    # ============ 日志 ============
+    # ============ Logs ============
     @app.get("/api/logs")
     async def get_logs(limit: int = 100):
         log_capture = app.state.log_capture
@@ -425,7 +513,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
             return {"lines": []}
         return {"lines": log_capture.get_recent(limit=limit)}
 
-    # ============ WebSocket 实时推送 ============
+    # ============ WebSocket Real-time Push ============
     @app.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket):
         await websocket.accept()
@@ -437,7 +525,6 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
                     event = await asyncio.wait_for(queue.get(), timeout=30)
                     await websocket.send_json(event)
                 except asyncio.TimeoutError:
-                    # 心跳保活
                     try:
                         await websocket.send_json({"type": "ping"})
                     except Exception:
@@ -449,7 +536,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
         finally:
             eventbus.unsubscribe(queue)
 
-    # ============ SPA 入口 ============
+    # ============ SPA Entry ============
     @app.get("/")
     async def serve_spa():
         spa_path = STATIC_DIR / "index.html"
@@ -457,7 +544,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
             return FileResponse(str(spa_path))
         return {"error": "index.html not found"}
 
-    # 安装日志捕获
+    # Install log capture
     log_capture = LogCapture()
     log_capture.install()
     app.state.log_capture = log_capture
@@ -465,9 +552,9 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
     return app
 
 
-# ============ 启动函数 ============
+# ============ Startup Function ============
 async def start_webui(bot, eventbus: EventBus, host: str = "127.0.0.1", port: int = 8800):
-    """启动 WebUI 服务器（作为 asyncio task 运行）"""
+    """Start WebUI server (runs as an asyncio task)"""
     app = create_app(relay_bot=bot, eventbus=eventbus)
 
     import uvicorn
@@ -479,12 +566,12 @@ async def start_webui(bot, eventbus: EventBus, host: str = "127.0.0.1", port: in
         ws="websockets",
     )
     server = uvicorn.Server(config)
-    print(f"[WebUI] 启动于 http://{host}:{port}")
+    print(f"[WebUI] Started at http://{host}:{port}")
     await server.serve()
 
 
 def run_webui_standalone():
-    """独立运行模式（用于开发测试）"""
+    """Standalone mode (for development testing)"""
     app = create_app()
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8800, log_level="info")
