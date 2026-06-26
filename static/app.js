@@ -98,7 +98,7 @@ function connectWS() {
         updateStatusDot(false); state.ws = null; scheduleReconnect();
     };
     state.ws.onerror = () => {
-        state.ws = null; scheduleReconnect();
+        // 不在这里置null，让 onclose 统一处理，避免幽灵订阅
     };
 }
 function scheduleReconnect() {
