@@ -23,6 +23,8 @@ const state = {
     pipeState: [],
     liveFeed: [],
     knowledge: [],
+    plugins: [],
+    pluginGroups: [],
     envConfig: { group_mode: {}, fallback_mode: 'direct', group_mode_raw: '' },
     ws: null,
     wsReconnectTimer: null,
@@ -203,6 +205,7 @@ function renderRoute() {
         case 'group-config': renderGroupConfig(); break;
         case 'pipe-status': renderPipeStatus(); break;
         case 'knowledge': renderKnowledge(); break;
+        case 'plugins': renderPlugins(); break;
         case 'send': renderSend(); break;
         default: view.innerHTML = '<div class="empty-state">&#x1F50D; 页面不存在</div>';
     }
@@ -741,6 +744,135 @@ function attachSendEvents() {
     });
 }
 
+// ============ Plugin Management ============
+async function fetchPlugins() {
+    try {
+        const data = await api('/api/plugins');
+        state.plugins = data.plugins || [];
+        state.pluginGroups = data.groups || [];
+        if (state.activeView === 'plugins') renderPlugins();
+    } catch (e) { /* ignore */ }
+}
+
+function renderPlugins() {
+    const plugins = state.plugins;
+    const groups = state.pluginGroups;
+    const allGroups = [...new Set([...groups, ...(state.groups.map(g => g.gid))])].sort((a, b) => a - b);
+
+    const cardsHtml = plugins.map(p => {
+        const groupTags = Object.entries(p.groups || {}).map(([gid, enabled]) => {
+            return `<span class="plugin-tag ${enabled ? 'on' : 'off'}" data-plugin="${p.name}" data-gid="${gid}">${gid} ${enabled ? 'ON' : 'OFF'} <span class="tag-close">&times;</span></span>`;
+        }).join('');
+
+        const groupOptions = allGroups.map(gid => `<option value="${gid}">群 ${gid}</option>`).join('');
+
+        return `
+        <div class="plugin-card" data-plugin="${p.name}">
+            <div class="plugin-header">
+                <div>
+                    <h3>${p.name}</h3>
+                    <p class="plugin-desc">${escapeHtml(p.desc || '')}</p>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" class="plugin-toggle" data-plugin="${p.name}" ${p.default ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="plugin-groups">
+                <div class="plugin-tags">${groupTags || '<span class="text-muted text-sm">暂无分群配置</span>'}</div>
+                <div class="plugin-group-add">
+                    <select class="plugin-gid-select">
+                        <option value="">选择群号...</option>
+                        ${groupOptions}
+                    </select>
+                    <button class="btn btn-sm btn-success btn-enable-group" data-plugin="${p.name}">开启</button>
+                    <button class="btn btn-sm btn-danger btn-disable-group" data-plugin="${p.name}">关闭</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    $('#app-view').innerHTML = `
+        <div class="page-header">
+            <h2>&#x1F9E9; 插件管理</h2>
+            <p>管理已注册插件的默认开关和分群配置</p>
+        </div>
+        <div class="plugin-grid">
+            ${cardsHtml || '<div class="empty-state">&#x1F4ED; 暂无已注册插件</div>'}
+        </div>
+        <div class="plugin-actions">
+            <button class="btn btn-primary" id="btn-reload-plugins">&#x1F504; 重载插件配置</button>
+        </div>`;
+
+    // Toggle default
+    $$('.plugin-toggle').forEach(el => {
+        el.addEventListener('change', async () => {
+            const name = el.dataset.plugin;
+            const enabled = el.checked;
+            try {
+                await api(`/api/plugins/${encodeURIComponent(name)}`, {
+                    method: 'PUT', body: JSON.stringify({ default: enabled }),
+                });
+            } catch (e) { console.warn('update plugin failed', e); }
+        });
+    });
+
+    // Group enable/disable
+    $$('.btn-enable-group').forEach(el => {
+        el.addEventListener('click', async () => {
+            const name = el.dataset.plugin;
+            const card = el.closest('.plugin-card');
+            const gid = card.querySelector('.plugin-gid-select')?.value;
+            if (!gid) { alert('请选择群号'); return; }
+            try {
+                await api(`/api/plugins/${encodeURIComponent(name)}`, {
+                    method: 'PUT', body: JSON.stringify({ group: gid, group_enabled: true }),
+                });
+                fetchPlugins();
+            } catch (e) { console.warn('enable group failed', e); }
+        });
+    });
+    $$('.btn-disable-group').forEach(el => {
+        el.addEventListener('click', async () => {
+            const name = el.dataset.plugin;
+            const card = el.closest('.plugin-card');
+            const gid = card.querySelector('.plugin-gid-select')?.value;
+            if (!gid) { alert('请选择群号'); return; }
+            try {
+                await api(`/api/plugins/${encodeURIComponent(name)}`, {
+                    method: 'PUT', body: JSON.stringify({ group: gid, group_enabled: false }),
+                });
+                fetchPlugins();
+            } catch (e) { console.warn('disable group failed', e); }
+        });
+    });
+
+    // Tag close (restore default)
+    $$('.plugin-tag').forEach(el => {
+        el.addEventListener('click', async (ev) => {
+            if (ev.target.classList.contains('tag-close')) {
+                const name = el.dataset.plugin;
+                const gid = el.dataset.gid;
+                try {
+                    await api(`/api/plugins/${encodeURIComponent(name)}`, {
+                        method: 'PUT', body: JSON.stringify({ group: gid, group_enabled: null }),
+                    });
+                    fetchPlugins();
+                } catch (e) { console.warn('remove group config failed', e); }
+            }
+        });
+    });
+
+    // Reload
+    $('#btn-reload-plugins')?.addEventListener('click', async () => {
+        try {
+            await api('/api/plugins/reload', { method: 'POST' });
+            alert('插件配置已重载');
+            fetchPlugins();
+        } catch (e) { alert('重载失败: ' + e.message); }
+    });
+}
+
 // ============ Global Reload Button ============
 function attachGlobalEvents() {
     $('#btn-reload-global')?.addEventListener('click', async () => {
@@ -772,6 +904,7 @@ async function init() {
     } catch (e) { /* use default */ }
 
     fetchEnvConfig();
+    fetchPlugins();
     renderRoute();
     connectWS();
     attachGlobalEvents();
@@ -783,5 +916,6 @@ async function init() {
     }, 15000);
     setInterval(fetchPipeState, 30000);
     setInterval(fetchEnvConfig, 30000);
+    setInterval(fetchPlugins, 30000);
 }
 document.addEventListener('DOMContentLoaded', init);

@@ -38,6 +38,8 @@ import httpx
 
 import websockets
 
+import plugins
+
 # ============ 配 置 ============
 WS_URL = os.getenv("NAPCAT_WS_URL", "ws://127.0.0.1:3001")
 TOKEN = os.getenv("NAPCAT_TOKEN", "")
@@ -154,6 +156,15 @@ class RelayBot:
             self._pipe_thresholds[gid] = self._init_pipe_threshold()
             self._pipe_locks[gid] = asyncio.Lock()
             self._pipe_recent[gid] = deque(maxlen=30)
+
+        # 插件系统
+        self.plugins = plugins.get_all()
+        self.plugin_config = plugins.load_config()
+        if self.plugins:
+            names = [p.name for p in self.plugins]
+            print(f"[中繼] 已加载 {len(self.plugins)} 个插件: {names}")
+        else:
+            print(f"[中繼] 暂无激活插件（在 plugins.py 中注册即可）")
 
         print(f"[中繼] 初始化完成（persona: {PERSONA_FILE.name if PERSONA_FILE.exists() else '默认'}）")
         print(f"[中繼] 管道群: {PIPE_GROUPS}, 其他群走 {FALLBACK_MODE}")
@@ -378,16 +389,20 @@ class RelayBot:
                     else:
                         should_speak = True
                         speak_prompt = f"以下是最近群聊记录：\n\n{recent if recent else '(暂无聊天内容)'}\n\n你是群成员，自然接一句，不要太正式。"
-                        self._pipe_counters[gid] = 0
-                        self._pipe_thresholds[gid] = self._init_pipe_threshold()
-                        print(f"[管道] 群 {gid} 主动触发，下次阈值: {self._pipe_thresholds[gid]}")
-                        await self.publish_event({
-                            "type": "pipe_trigger",
-                            "data": {"gid": gid, "threshold": self._pipe_thresholds[gid]}
-                        })
+
+            # === 插件钩子（窗口已更新、计数已累加；在 AI 回复之前） ===
+            if await plugins.run_plugins(self, gid, uid, nick, text, is_at):
+                return
 
             if should_speak:
-                print(f"[管道] 群 {gid} {'@触发' if is_at else '主动发言'}")
+                # 确认 AI 真要发言了再消费计数（避免插件抢话后计数器被吞）
+                self._pipe_counters[gid] = 0
+                self._pipe_thresholds[gid] = self._init_pipe_threshold()
+                print(f"[管道] 群 {gid} {'@触发' if is_at else '主动发言'}，下次阈值: {self._pipe_thresholds[gid]}")
+                await self.publish_event({
+                    "type": "pipe_trigger",
+                    "data": {"gid": gid, "threshold": self._pipe_thresholds[gid]}
+                })
                 # 50% 概率带表情包指令
                 if random.random() < 0.5:
                     speak_prompt = "\n".join([speak_prompt, MEME_PROMPT_EXTRA])
@@ -412,9 +427,16 @@ class RelayBot:
 
             # AI 聊天：只响应 @bot
             if not is_at:
+                # 插件钩子（direct 群，非 @ 消息）
+                if await plugins.run_plugins(self, gid, uid, nick, text, is_at=False):
+                    return
                 return
             clean = text.replace(at_tag, "").strip()
             if not clean:
+                return
+
+            # 插件钩子（direct 群，@触发时）
+            if await plugins.run_plugins(self, gid, uid, nick, text, is_at=True):
                 return
 
             await self.on_ai_chat(gid, uid, nick, clean)

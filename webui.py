@@ -19,6 +19,10 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+import plugins as plugin_mod
+
 # ============ Paths ============
 BOT_NAME = os.getenv("BOT_NAME", "QQ Bot")
 
@@ -535,6 +539,33 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
             pass
         finally:
             eventbus.unsubscribe(queue)
+
+    # ============ Plugin Management ============
+    @app.get("/api/plugins")
+    async def list_plugins():
+        return {
+            "plugins": plugin_mod.get_plugin_info(),
+            "groups": plugin_mod.get_groups(),
+        }
+
+    @app.put("/api/plugins/{name}")
+    async def update_plugin(name: str, request: Request):
+        data = await request.json()
+        default = data.get("default")
+        group = data.get("group")
+        group_enabled = data.get("group_enabled")
+        plugin_mod.update_plugin(
+            name,
+            default=default,
+            group=str(group) if group is not None else None,
+            group_enabled=group_enabled,
+        )
+        return {"ok": True}
+
+    @app.post("/api/plugins/reload")
+    async def reload_plugins():
+        plugin_mod.reload_plugins()
+        return {"ok": True}
 
     # ============ SPA Entry ============
     @app.get("/")
