@@ -160,9 +160,17 @@ class RelayBot:
         # 插件系统
         self.plugins = plugins.get_all()
         self.plugin_config = plugins.load_config()
-        if self.plugins:
-            names = [p.name for p in self.plugins]
-            print(f"[中繼] 已加载 {len(self.plugins)} 个插件: {names}")
+        msg_ps = self.plugins
+        notice_ps = plugins.get_all_notice()
+        request_ps = plugins.get_all_request()
+        if msg_ps or notice_ps or request_ps:
+            print(f"[中繼] 已加载 {len(msg_ps) + len(notice_ps) + len(request_ps)} 个插件:")
+            for p in msg_ps:
+                print(f"       [消息] {p.name} — {p.desc}")
+            for p in notice_ps:
+                print(f"       [通知] {p.name} — {p.desc}")
+            for p in request_ps:
+                print(f"       [请求] {p.name} — {p.desc}")
         else:
             print(f"[中繼] 暂无激活插件（在 plugins.py 中注册即可）")
 
@@ -233,25 +241,39 @@ class RelayBot:
                 pass
 
     async def on_message(self, data: dict):
-        if data.get("post_type") != "message":
-            return
-        # 去重
-        if self._dedup(data.get("message_id")):
-            return
+        post_type = data.get("post_type")
 
-        mt = data.get("message_type")
-        uid = data.get("user_id")
+        if post_type == "message":
+            # 去重
+            if self._dedup(data.get("message_id")):
+                return
 
-        if mt == "group":
-            gid = data.get("group_id")
-            text = data.get("raw_message", "").strip()
-            sender = data.get("sender", {})
-            nick = sender.get("card") or sender.get("nickname") or str(uid)
-            print(f"[群 {gid}] {nick}({uid}): {text}")
-            await self.on_group_msg(gid, uid, nick, text)
-        elif mt == "private":
-            # 私聊由 cc-connect 处理
-            pass
+            mt = data.get("message_type")
+            uid = data.get("user_id")
+
+            if mt == "group":
+                gid = data.get("group_id")
+                text = data.get("raw_message", "").strip()
+                sender = data.get("sender", {})
+                nick = sender.get("card") or sender.get("nickname") or str(uid)
+                print(f"[群 {gid}] {nick}({uid}): {text}")
+                await self.on_group_msg(gid, uid, nick, text)
+            elif mt == "private":
+                # 私聊由 cc-connect 处理
+                pass
+
+        elif post_type == "notice":
+            gid = data.get("group_id", "?")
+            ntype = data.get("notice_type", "?")
+            print(f"[通知] 群 {gid} | {ntype}")
+            await plugins.run_notice_plugins(self, data)
+
+        elif post_type == "request":
+            gid = data.get("group_id", "?")
+            rtype = data.get("request_type", "?")
+            sub = data.get("sub_type", "?")
+            print(f"[请求] 群 {gid} | {rtype}/{sub}")
+            await plugins.run_request_plugins(self, data)
 
     # ------- 管道调用 -------
     async def _call_pipe(self, gid: int, message: str, allowed_tools: str | None = None) -> str:
@@ -633,7 +655,7 @@ class RelayBot:
                 "params": {"group_id": gid, "message": chunk},
             }))
             if i < len(chunks) - 1:
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.9)
 
 
 # ============ HTTP 图床 ============

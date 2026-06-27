@@ -37,20 +37,47 @@ class PluginInfo:
 
 # ===== Registry =====
 _plugins: list[PluginInfo] = []
+_notice_plugins: list[PluginInfo] = []
+_request_plugins: list[PluginInfo] = []
 
 
 def register(name: str, desc: str, handler, default_enabled: bool = True):
-    """Register a plugin handler."""
-    # Prevent duplicate registration
+    """Register a message plugin handler."""
     for p in _plugins:
         if p.name == name:
             raise ValueError(f"Plugin '{name}' already registered")
     _plugins.append(PluginInfo(name, desc, handler, default_enabled))
 
 
+def register_notice(name: str, desc: str, handler, default_enabled: bool = True):
+    """Register a notice event plugin (poke, group_increase, group_decrease, etc.)."""
+    for p in _notice_plugins:
+        if p.name == name:
+            raise ValueError(f"Notice plugin '{name}' already registered")
+    _notice_plugins.append(PluginInfo(name, desc, handler, default_enabled))
+
+
+def register_request(name: str, desc: str, handler, default_enabled: bool = True):
+    """Register a request event plugin (group join request, friend request, etc.)."""
+    for p in _request_plugins:
+        if p.name == name:
+            raise ValueError(f"Request plugin '{name}' already registered")
+    _request_plugins.append(PluginInfo(name, desc, handler, default_enabled))
+
+
 def get_all() -> list[PluginInfo]:
-    """Return all registered plugins."""
+    """Return all registered message plugins."""
     return _plugins.copy()
+
+
+def get_all_notice() -> list[PluginInfo]:
+    """Return all registered notice plugins."""
+    return _notice_plugins.copy()
+
+
+def get_all_request() -> list[PluginInfo]:
+    """Return all registered request plugins."""
+    return _request_plugins.copy()
 
 
 # ===== Config Management =====
@@ -72,26 +99,39 @@ def is_enabled(name: str, gid: int | None = None, config: dict | None = None) ->
     if config is None:
         config = load_config()
     plugin_cfg = config.get(name, {})
-    # Priority: group setting > default > False
+    # Priority: 群设置 > 配置文件default > 注册时default_enabled > False
     if gid is not None:
         group_val = plugin_cfg.get("groups", {}).get(str(gid))
         if group_val is not None:
             return group_val
-    return plugin_cfg.get("default", False)
+    if "default" in plugin_cfg:
+        return plugin_cfg["default"]
+    # 回退到注册时的 default_enabled
+    for registry in (_plugins, _notice_plugins, _request_plugins):
+        for p in registry:
+            if p.name == name:
+                return p.default
+    return False
 
 
 def get_plugin_info() -> list:
-    """Return list of dicts with name, desc, default, and group settings."""
+    """Return list of dicts with name, desc, type, default, and group settings."""
     config = load_config()
     result = []
-    for p in _plugins:
-        cfg = config.get(p.name, {})
-        result.append({
-            "name": p.name,
-            "desc": p.desc,
-            "default": cfg.get("default", p.default),
-            "groups": cfg.get("groups", {}),
-        })
+    for registry, ptype in [
+        (_plugins, "message"),
+        (_notice_plugins, "notice"),
+        (_request_plugins, "request"),
+    ]:
+        for p in registry:
+            cfg = config.get(p.name, {})
+            result.append({
+                "name": p.name,
+                "desc": p.desc,
+                "type": ptype,
+                "default": cfg.get("default", p.default),
+                "groups": cfg.get("groups", {}),
+            })
     return result
 
 
@@ -105,17 +145,20 @@ def get_groups() -> list:
     return sorted(groups)
 
 
+def _find_default(name: str) -> bool:
+    """Search all registries for a plugin's default_enabled."""
+    for registry in (_plugins, _notice_plugins, _request_plugins):
+        for p in registry:
+            if p.name == name:
+                return p.default
+    return True
+
+
 def set_group_enabled(name: str, gid: int, enabled: bool, config: dict | None = None):
     if config is None:
         config = load_config()
     if name not in config:
-        # Find default from registry
-        default_val = True
-        for p in _plugins:
-            if p.name == name:
-                default_val = p.default
-                break
-        config[name] = {"default": default_val, "groups": {}}
+        config[name] = {"default": _find_default(name), "groups": {}}
     if "groups" not in config[name]:
         config[name]["groups"] = {}
     if enabled:
@@ -129,13 +172,7 @@ def set_group_enabled(name: str, gid: int, enabled: bool, config: dict | None = 
 def update_plugin(name: str, default: bool | None = None, group: str | None = None, group_enabled: bool | None = None):
     config = load_config()
     if name not in config:
-        # Find default from registry
-        default_val = True
-        for p in _plugins:
-            if p.name == name:
-                default_val = p.default
-                break
-        config[name] = {"default": default_val, "groups": {}}
+        config[name] = {"default": _find_default(name), "groups": {}}
     if default is not None:
         config[name]["default"] = default
     if group is not None and group_enabled is not None:
@@ -156,7 +193,7 @@ def reload_plugins():
 # ===== Plugin Runner =====
 async def run_plugins(bot, gid: int, uid: int, nick: str, text: str, is_at: bool = False) -> bool:
     """
-    Run all registered plugin handlers.
+    Run all registered message plugin handlers.
     Returns True if any plugin handled (intercepted) the message.
     """
     config = load_config()
@@ -168,8 +205,42 @@ async def run_plugins(bot, gid: int, uid: int, nick: str, text: str, is_at: bool
             if result is True:
                 return True
         except Exception as e:
-            print(f"[Plugin] {p.name} error: {e}")
+            print(f"[Plugin:message] {p.name} error: {e}")
     return False
+
+
+async def run_notice_plugins(bot, data: dict) -> None:
+    """
+    Run all registered notice event plugins.
+    Handler signature: async def handler(bot, data) -> None
+    data: full OneBot notice event dict.
+    """
+    config = load_config()
+    gid = data.get("group_id")
+    for p in _notice_plugins:
+        if not is_enabled(p.name, gid, config):
+            continue
+        try:
+            await p.handler(bot, data)
+        except Exception as e:
+            print(f"[Plugin:notice] {p.name} error: {e}")
+
+
+async def run_request_plugins(bot, data: dict) -> None:
+    """
+    Run all registered request event plugins.
+    Handler signature: async def handler(bot, data) -> None
+    data: full OneBot request event dict.
+    """
+    config = load_config()
+    gid = data.get("group_id")
+    for p in _request_plugins:
+        if not is_enabled(p.name, gid, config):
+            continue
+        try:
+            await p.handler(bot, data)
+        except Exception as e:
+            print(f"[Plugin:request] {p.name} error: {e}")
 
 
 # ===== Example plugins (uncomment to enable) =====
@@ -193,3 +264,83 @@ async def run_plugins(bot, gid: int, uid: int, nick: str, text: str, is_at: bool
 
 # register("hello", "回复'你好'", handle_hello, default_enabled=True)
 # register("keyword_reply", "关键词自动回复", handle_keyword_reply, default_enabled=False)
+
+
+# ==============================================================================
+# 三 个 事 件 插 件 ： 戳 一 戳 回 戳 / 加 群 申 请 通 知 / 入 群 欢 迎
+# ==============================================================================
+
+import time as _time
+
+# 戳一戳冷却缓存 { "gid:uid": 上次触发时间戳 }
+_poke_cooldown: dict[str, float] = {}
+_POKE_COOLDOWN_SEC = 10
+
+
+async def poke_reply(bot, data: dict):
+    """被戳回戳，10 秒冷却"""
+    if data.get("notice_type") != "notify":
+        return
+    if data.get("sub_type") != "poke":
+        return
+
+    gid = data.get("group_id")
+    uid = data.get("user_id")
+    target = data.get("target_id")
+
+    # 只处理戳机器人的情况，别人互戳不管
+    if target != bot.bot_qq:
+        return
+
+    # 冷却检查
+    key = f"{gid}:{uid}"
+    now = _time.time()
+    last = _poke_cooldown.get(key, 0)
+    if now - last < _POKE_COOLDOWN_SEC:
+        return
+    _poke_cooldown[key] = now
+
+    # 戳回去
+    import json
+    await bot.ws.send(json.dumps({
+        "action": "group_poke",
+        "params": {"group_id": gid, "user_id": uid}
+    }))
+    print(f"[插件:poke] 群 {gid} | 回戳 {uid}")
+
+
+async def join_request_notify(bot, data: dict):
+    """加群申请时在群内提示"""
+    if data.get("request_type") != "group":
+        return
+    if data.get("sub_type") != "add":
+        return
+
+    gid = data.get("group_id")
+    if not gid:
+        return
+
+    await bot.send_group(gid, "好像有加群申请哦~")
+    print(f"[插件:join_request] 群 {gid} | 提示加群申请")
+
+
+async def group_welcome(bot, data: dict):
+    """新人入群 @欢迎"""
+    if data.get("notice_type") != "group_increase":
+        return
+
+    gid = data.get("group_id")
+    uid = data.get("user_id")
+
+    if not gid or not uid:
+        return
+
+    msg = f"[CQ:at,qq={uid}] 欢迎入群！"
+    await bot.send_group(gid, msg)
+    print(f"[插件:welcome] 群 {gid} | 欢迎 {uid}")
+
+
+# 注册三个插件
+register_notice("poke_reply", "被戳回戳（10秒冷却）", poke_reply, default_enabled=True)
+register_request("join_request_notify", "加群申请通知", join_request_notify, default_enabled=True)
+register_notice("group_welcome", "入群欢迎", group_welcome, default_enabled=True)
