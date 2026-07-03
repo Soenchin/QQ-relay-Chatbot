@@ -434,6 +434,7 @@ class RelayBot:
                     reply = await self._call_pipe(gid, speak_prompt, allowed_tools=pipe_tools)
                 if reply:
                     await self.send_group(gid, reply)
+                    self._pipe_recent[gid].append(f"[{BOT_NAME}] {reply}")
                     await self.publish_event({
                         "type": "reply",
                         "data": {"gid": gid, "text": reply, "mode": "pipe", "is_at": is_at}
