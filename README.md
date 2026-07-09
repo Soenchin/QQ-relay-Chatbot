@@ -1,5 +1,9 @@
 # QQ-relay-Chatbot
 
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-%3E%3D0.100-009688?logo=fastapi&logoColor=white)
+![License](https://img.shields.io/badge/License-AGPL--3.0-red)
+
 交流群 QQ 940358918
 
 基于 OneBot v11 WebSocket 的 QQ 群聊机器人，支持双模 AI 分流（直调/管道）、骰子、主动发言、表情包、插件系统和 Web 管理面板。兼容 **SnowLuma** 和 **NapCatQQ**。

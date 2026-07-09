@@ -3,62 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QQ Relay Chatbot — 轻量 · 极简 · 即开即用</title>
+<title>QQ Relay Chatbot</title>
 <style>
 /* === RESET & BASE === */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
   font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #000; color: #e0e0e0;
-  overflow-x: hidden;
-  line-height: 1.7;
-}
-
-/* === ANIMATED GRID BACKGROUND === */
-#bg-canvas {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: #0a0a0a; color: #e0e0e0;
+  overflow-x: hidden; line-height: 1.7;
 }
 
 /* === SCROLLBAR === */
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #000; }
-::-webkit-scrollbar-thumb { background: #FF2E93; border-radius: 3px; }
-
-/* === GLITCH TEXT === */
-.glitch {
-  position: relative;
-  display: inline-block;
-}
-.glitch::before, .glitch::after {
-  content: attr(data-text);
-  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
-}
-.glitch::before {
-  color: #00F0FF;
-  clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
-  animation: glitchTop 3s infinite linear alternate-reverse;
-}
-.glitch::after {
-  color: #FF2E93;
-  clip-path: polygon(0 60%, 100% 60%, 100% 100%, 0 100%);
-  animation: glitchBottom 3s infinite linear alternate-reverse;
-}
-@keyframes glitchTop {
-  0%, 20%, 100% { transform: translateX(0); }
-  10% { transform: translateX(-3px); }
-  15% { transform: translateX(2px); }
-}
-@keyframes glitchBottom {
-  0%, 20%, 100% { transform: translateX(0); }
-  10% { transform: translateX(3px); }
-  15% { transform: translateX(-2px); }
-}
-
-/* === NEON TEXT === */
-.neon-pink { color: #FF2E93; text-shadow: 0 0 10px #FF2E93, 0 0 30px #FF2E93; }
-.neon-cyan { color: #00F0FF; text-shadow: 0 0 10px #00F0FF, 0 0 30px #00F0FF; }
-.neon-white { color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+::-webkit-scrollbar-track { background: #0a0a0a; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
 
 /* === SECTIONS === */
 section {
@@ -67,195 +26,161 @@ section {
   display: flex; flex-direction: column; justify-content: center; align-items: center;
   padding: 80px 24px;
 }
-.container { width: 100%; max-width: 1100px; margin: 0 auto; }
+.container { width: 100%; max-width: 1000px; margin: 0 auto; }
 
 /* === HERO === */
 #hero { text-align: center; min-height: 100vh; }
 #hero .badge {
-  display: inline-block; padding: 6px 18px; border-radius: 4px;
-  border: 1px solid #FF2E93; color: #FF2E93; font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
-  margin-bottom: 30px; animation: pulse 2s ease-in-out infinite;
+  display: inline-block; padding: 6px 16px; border-radius: 3px;
+  background: #1a1a1a; color: #4ade80; font-size: 11px; letter-spacing: 2px;
+  text-transform: uppercase; margin-bottom: 28px;
+  border: 1px solid #2a2a2a;
 }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
-#hero h1 { font-size: clamp(2.5rem, 8vw, 5.5rem); font-weight: 900; margin-bottom: 16px; line-height: 1.1; }
-#hero .subtitle { font-size: clamp(1rem, 2.5vw, 1.4rem); color: #888; max-width: 600px; margin: 0 auto 40px; }
-#hero .cta { display: inline-flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+#hero h1 {
+  font-size: clamp(2.8rem, 9vw, 6rem); font-weight: 900; margin-bottom: 16px;
+  line-height: 1.05; color: #fff; letter-spacing: -2px;
+}
+#hero .subtitle {
+  font-size: clamp(1rem, 2.5vw, 1.3rem); color: #999; max-width: 560px;
+  margin: 0 auto 40px;
+}
+#hero .subtitle strong { color: #fb923c; font-weight: 600; }
+#hero .cta { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
 #hero .btn {
-  display: inline-block; padding: 14px 36px; border-radius: 4px; font-size: 15px; font-weight: 600;
-  text-decoration: none; transition: all 0.3s; cursor: pointer; border: 1px solid; letter-spacing: 1px;
+  display: inline-block; padding: 14px 36px; border-radius: 4px; font-size: 15px;
+  font-weight: 600; text-decoration: none; transition: all 0.2s; cursor: pointer;
+  border: 1px solid;
 }
-#hero .btn-primary {
-  background: #FF2E93; color: #000; border-color: #FF2E93;
-  box-shadow: 0 0 20px rgba(255,46,147,0.3);
-}
-#hero .btn-primary:hover { background: #ff4da6; box-shadow: 0 0 30px rgba(255,46,147,0.5); }
-#hero .btn-ghost {
-  background: transparent; color: #00F0FF; border-color: #00F0FF;
-  box-shadow: 0 0 10px rgba(0,240,255,0.1);
-}
-#hero .btn-ghost:hover { background: rgba(0,240,255,0.1); box-shadow: 0 0 20px rgba(0,240,255,0.3); }
-#hero .scroll-hint { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); font-size: 14px; color: #555; }
+#hero .btn-primary { background: #4ade80; color: #0a0a0a; border-color: #4ade80; }
+#hero .btn-primary:hover { background: #22c55e; border-color: #22c55e; }
+#hero .btn-ghost { background: transparent; color: #fb923c; border-color: #fb923c; }
+#hero .btn-ghost:hover { background: #fb923c; color: #0a0a0a; }
+#hero .scroll-hint { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #444; }
 
 /* === PHILOSOPHY === */
-#philosophy { background: linear-gradient(180deg, #000 0%, #080810 100%); }
-#philosophy h2 { font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: 24px; text-align: center; }
-#philosophy .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-top: 50px; }
+#philosophy { background: #0d0d0d; }
+#philosophy h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 16px; text-align: center; color: #fff; font-weight: 800; }
+#philosophy .section-desc { text-align: center; color: #888; max-width: 560px; margin: 0 auto 50px; }
+#philosophy .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; }
 #philosophy .card {
-  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,46,147,0.2); border-radius: 8px;
-  padding: 30px; transition: all 0.3s; position: relative; overflow: hidden;
+  background: #111; border: 1px solid #1a1a1a; border-radius: 8px;
+  padding: 32px; transition: all 0.25s;
 }
-#philosophy .card::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, #FF2E93, #00F0FF); opacity: 0; transition: opacity 0.3s;
-}
-#philosophy .card:hover { border-color: rgba(255,46,147,0.5); transform: translateY(-4px); }
-#philosophy .card:hover::before { opacity: 1; }
-#philosophy .card-icon { font-size: 28px; margin-bottom: 14px; }
-#philosophy .card h3 { font-size: 1.2rem; margin-bottom: 10px; color: #fff; }
-#philosophy .card p { font-size: 14px; color: #999; }
+#philosophy .card:hover { border-color: #4ade80; transform: translateY(-3px); }
+#philosophy .card-icon { font-size: 28px; margin-bottom: 12px; }
+#philosophy .card h3 { font-size: 1.15rem; margin-bottom: 8px; color: #fff; }
+#philosophy .card p { font-size: 14px; color: #888; }
 
 /* === FEATURES === */
-#features { background: #000; }
-#features h2 { font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: 50px; text-align: center; }
-#features .feature-list { display: flex; flex-direction: column; gap: 36px; max-width: 800px; margin: 0 auto; }
+#features { background: #0a0a0a; }
+#features h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
+#features .feature-list { display: flex; flex-direction: column; gap: 24px; max-width: 800px; margin: 0 auto; }
 #features .feature-item {
   display: flex; gap: 24px; align-items: flex-start;
-  padding: 24px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
-  transition: all 0.3s;
+  padding: 24px; background: #111; border: 1px solid #1a1a1a; border-radius: 8px;
+  transition: all 0.25s;
 }
-#features .feature-item:hover { border-color: rgba(0,240,255,0.3); background: rgba(0,240,255,0.03); }
+#features .feature-item:hover { border-color: #fb923c; }
 #features .feature-num {
-  font-size: 2rem; font-weight: 900; color: #FF2E93; opacity: 0.5; min-width: 48px; text-align: center;
+  font-size: 1.8rem; font-weight: 900; color: #333; min-width: 48px;
+  text-align: center; line-height: 1;
 }
-#features .feature-text h3 { font-size: 1.2rem; color: #fff; margin-bottom: 6px; }
+#features .feature-text h3 { font-size: 1.15rem; color: #fff; margin-bottom: 6px; }
 #features .feature-text p { color: #888; font-size: 14px; }
 
 /* === ARCHITECTURE === */
-#architecture { background: linear-gradient(180deg, #080810 0%, #000 100%); }
-#architecture h2 { font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: 50px; text-align: center; }
+#architecture { background: #0d0d0d; }
+#architecture h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
 #architecture .arch-box {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 40px; align-items: center; max-width: 900px; margin: 0 auto;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 24px;
+  align-items: center; max-width: 800px; margin: 0 auto;
 }
 #architecture .arch-node {
-  width: 160px; height: 90px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
-  font-size: 14px; font-weight: 600; position: relative; flex-direction: column; gap: 4px;
+  width: 160px; height: 80px; border-radius: 6px; display: flex;
+  align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+  flex-direction: column; gap: 4px; border: 1px solid;
 }
-#architecture .arch-node.qq { background: rgba(0,240,255,0.08); border: 1px solid #00F0FF; color: #00F0FF; }
-#architecture .arch-node.core { background: rgba(255,46,147,0.08); border: 1px solid #FF2E93; color: #FF2E93; }
-#architecture .arch-node.llm { background: rgba(255,255,255,0.05); border: 1px solid #fff; color: #fff; }
-#architecture .arch-node .label { font-size: 15px; opacity: 0.7; font-weight: 400; }
-#architecture .arch-arrow {
-  font-size: 24px; color: #333; transition: color 0.3s;
-}
-#architecture .arch-box:hover .arch-arrow { color: #FF2E93; }
-#architecture .desc { text-align: center; max-width: 600px; margin: 40px auto 0 auto; color: #aaa; font-size: 16px; }
-
-/* === ROUTING === */
-#routing { background: #000; }
-#routing h2 { font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: 50px; text-align: center; }
-#routing .routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px; max-width: 900px; margin: 0 auto; }
-#routing .route {
-  border: 1px solid; border-radius: 8px; padding: 30px; position: relative; overflow: hidden;
-}
-#routing .route.direct { border-color: #00F0FF; background: rgba(0,240,255,0.03); }
-#routing .route.smart { border-color: #FF2E93; background: rgba(255,46,147,0.03); }
-#routing .route-tag {
-  position: absolute; top: 14px; right: 14px; font-size: 13px; padding: 3px 10px; border-radius: 3px; font-weight: 600;
-}
-#routing .route.direct .route-tag { background: #00F0FF; color: #000; }
-#routing .route.smart .route-tag { background: #FF2E93; color: #000; }
-#routing .route h3 { font-size: 1.3rem; margin-bottom: 14px; }
-#routing .route.direct h3 { color: #00F0FF; }
-#routing .route.smart h3 { color: #FF2E93; }
-#routing .route ul { list-style: none; }
-#routing .route li { padding: 6px 0; font-size: 14px; color: #999; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 10px; }
-#routing .route li::before { content: '›'; font-size: 18px; }
-#routing .route.direct li::before { color: #00F0FF; }
-#routing .route.smart li::before { color: #FF2E93; }
-#routing .route li:last-child { border-bottom: none; }
+#architecture .arch-node.qq { background: #0d1a0d; border-color: #4ade8055; color: #4ade80; }
+#architecture .arch-node.core { background: #1a0d0d; border-color: #fb923c55; color: #fb923c; }
+#architecture .arch-node.llm { background: #111; border-color: #333; color: #ccc; }
+#architecture .arch-node .label { font-size: 12px; opacity: 0.6; font-weight: 400; }
+#architecture .arch-arrow { font-size: 20px; color: #333; }
+#architecture .desc { text-align: center; max-width: 540px; margin: 40px auto 0 auto; color: #777; font-size: 15px; }
 
 /* === CODE SIZE === */
-#code-size { background: linear-gradient(180deg, #000 0%, #080810 100%); }
-#code-size h2 { font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: 50px; text-align: center; }
-#code-size .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 40px; max-width: 800px; margin: 0 auto; }
+#code-size { background: #0a0a0a; }
+#code-size h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
+#code-size .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 50px; max-width: 700px; margin: 0 auto; }
 #code-size .stat { text-align: center; }
-#code-size .stat-value {
-  font-size: clamp(3rem, 8vw, 5rem); font-weight: 900; line-height: 1;
-  background: linear-gradient(135deg, #FF2E93, #00F0FF); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-#code-size .stat-label { font-size: 16px; color: #999; margin-top: 8px; }
-#code-size .note { text-align: center; max-width: 600px; margin: 40px auto 0 auto; color: #777; font-size: 16px; }
-
-/* === COMPARISON === */
-#comparison { background: #000; }
-#comparison h2 { font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: 50px; text-align: center; }
-#comparison table { width: 100%; max-width: 800px; margin: 0 auto; border-collapse: collapse; font-size: 14px; }
-#comparison th, #comparison td { padding: 14px 18px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.08); }
-#comparison th { color: #FF2E93; font-weight: 600; font-size: 15px; text-transform: uppercase; letter-spacing: 1px; }
-#comparison td { color: #bbb; }
-#comparison td:first-child { color: #fff; font-weight: 500; }
-#comparison tr:hover td { background: rgba(255,255,255,0.02); }
-#comparison .check { color: #00F0FF; font-weight: 700; }
-#comparison .cross { color: #555; }
+#code-size .stat-value { font-size: clamp(3rem, 8vw, 5rem); font-weight: 900; line-height: 1; color: #4ade80; }
+#code-size .stat-label { font-size: 15px; color: #777; margin-top: 8px; }
+#code-size .note { text-align: center; max-width: 540px; margin: 40px auto 0 auto; color: #666; font-size: 15px; }
 
 /* === QUICK START === */
-#quickstart { background: linear-gradient(180deg, #080810 0%, #000 100%); }
-#quickstart h2 { font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: 50px; text-align: center; }
-#quickstart .step-list { max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
-#quickstart .step {
-  display: flex; gap: 20px; align-items: flex-start;
-}
+#quickstart { background: #0d0d0d; }
+#quickstart h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
+#quickstart .step-list { max-width: 650px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+#quickstart .step { display: flex; gap: 20px; align-items: flex-start; }
 #quickstart .step-num {
-  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;
-  border: 2px solid #FF2E93; color: #FF2E93;
+  width: 38px; height: 38px; border-radius: 4px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px;
+  background: #1a1a1a; color: #fb923c; border: 1px solid #2a2a2a;
 }
-#quickstart .step-text h3 { font-size: 1.1rem; color: #fff; margin-bottom: 6px; }
+#quickstart .step-text h3 { font-size: 1.05rem; color: #fff; margin-bottom: 6px; }
 #quickstart .step-text p { color: #888; font-size: 14px; margin-bottom: 10px; }
 #quickstart .code-block {
-  background: #0a0a0a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
-  padding: 12px 16px; font-family: 'Consolas', 'Monaco', monospace; font-size: 15px; color: #ccc;
-  overflow-x: auto; white-space: nowrap;
+  background: #111; border: 1px solid #1a1a1a; border-radius: 6px;
+  padding: 12px 18px; font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 14px; color: #bbb; overflow-x: auto; white-space: nowrap;
 }
-#quickstart .code-block .comment { color: #555; font-size: 15px; }
-#quickstart .code-block .cmd { color: #00F0FF; }
-#quickstart .code-block .arg { color: #FF2E93; }
+#quickstart .code-block .comment { color: #555; }
+#quickstart .code-block .cmd { color: #4ade80; }
+#quickstart .code-block .arg { color: #fb923c; }
+
+/* === COMPARISON === */
+#comparison { background: #0a0a0a; }
+#comparison h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
+#comparison .table-wrap { overflow-x: auto; width: 100%; max-width: 780px; margin: 0 auto; }
+#comparison table { width: 100%; border-collapse: collapse; font-size: 14px; }
+#comparison th, #comparison td { padding: 14px 18px; text-align: left; border-bottom: 1px solid #1a1a1a; }
+#comparison th { color: #fb923c; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+#comparison td { color: #aaa; }
+#comparison td:first-child { color: #ccc; }
+#comparison .check { color: #4ade80; font-weight: 700; }
+#comparison .cross { color: #555; }
 
 /* === FOOTER === */
-#footer { min-height: 40vh; text-align: center; padding: 60px 24px; }
-#footer h2 { font-size: clamp(2rem, 6vw, 3rem); margin-bottom: 20px; }
-#footer .links { display: flex; gap: 30px; justify-content: center; flex-wrap: wrap; margin-top: 30px; }
-#footer .links a { color: #666; text-decoration: none; font-size: 14px; transition: color 0.3s; }
-#footer .links a:hover { color: #FF2E93; }
-#footer .copy { margin-top: 50px; font-size: 14px; color: #333; }
+#footer { min-height: 40vh; text-align: center; padding: 60px 24px; background: #050505; }
+#footer h2 { font-size: clamp(1.8rem, 5vw, 3rem); margin-bottom: 16px; color: #fff; font-weight: 800; }
+#footer .links { display: flex; gap: 28px; justify-content: center; flex-wrap: wrap; margin-top: 28px; }
+#footer .links a { color: #666; text-decoration: none; font-size: 14px; transition: color 0.2s; }
+#footer .links a:hover { color: #4ade80; }
+#footer .copy { margin-top: 40px; font-size: 13px; color: #333; }
 
-/* === REVEAL ANIMATION === */
-.reveal { opacity: 0; transform: translateY(40px); transition: all 0.8s ease-out; }
+/* === REVEAL === */
+.reveal { opacity: 0; transform: translateY(30px); transition: all 0.7s ease-out; }
 .reveal.visible { opacity: 1; transform: translateY(0); }
 
 /* === RESPONSIVE === */
 @media (max-width: 640px) {
+  section { padding: 50px 16px; }
   #architecture .arch-arrow { display: none; }
-  #architecture .arch-box { flex-direction: column; gap: 20px; }
-  #routing .routes { grid-template-columns: 1fr; }
-  #comparison table { font-size: 12px; }
-  #comparison th, #comparison td { padding: 10px 12px; }
+  #architecture .arch-box { flex-direction: column; gap: 16px; }
+  .feature-item { flex-direction: column; gap: 12px; }
 }
 </style>
 </head>
 <body>
 
-<canvas id="bg-canvas"></canvas>
-
 <!-- ===== HERO ===== -->
 <section id="hero">
   <div class="container">
-    <div class="badge">Soenchin / QQ-relay-bot</div>
-    <h1 class="glitch" data-text="QQ Relay Chatbot">QQ Relay Chatbot</h1>
-    <p class="subtitle">一个轻量、极简、零依赖的 QQ 消息转发机器人。<br>不追求复杂 AI，只追求 <strong class="neon-pink">秒级部署</strong> 与 <strong class="neon-cyan">极低维护</strong>。</p>
+    <div class="badge">Soenchin / QQ-relay-Chatbot</div>
+    <h1>QQ Relay<br>Chatbot</h1>
+    <p class="subtitle">基于 OneBot v11 的群聊 AI 机器人<br>双模路由 · 插件扩展 · 活跃群聊氛围</p>
     <div class="cta">
-      <a href="#quickstart" class="btn btn-primary">⚡ 快速开始</a>
-      <a href="https://github.com/Soenchin/qq-relay-bot" class="btn btn-ghost">GitHub →</a>
+      <a href="#quickstart" class="btn btn-primary">快速开始</a>
+      <a href="https://github.com/Soenchin/QQ-relay-Chatbot" class="btn btn-ghost">GitHub →</a>
     </div>
   </div>
   <div class="scroll-hint">▼ 向下滚动了解更多</div>
@@ -264,23 +189,23 @@ section {
 <!-- ===== PHILOSOPHY ===== -->
 <section id="philosophy">
   <div class="container">
-    <h2 class="reveal"><span class="neon-pink">Keep It Small</span></h2>
-    <p class="reveal" style="text-align:center; color:#777; max-width:600px; margin:0 auto;">现代机器人框架动辄数千行配置、十几个依赖、层层封装。我们反其道而行——</p>
+    <h2 class="reveal">Keep It Small</h2>
+    <p class="section-desc reveal">不堆功能、不造轮子。只做一件事：让 AI 进入 QQ 群聊。</p>
     <div class="cards">
       <div class="card reveal">
-        <div class="card-icon neon-pink">⚡</div>
-        <h3>秒级启动</h3>
-        <p>单文件核心，无需 Docker，无需 Kafka，无需 Redis。安装→配置→运行，5 分钟内搞定。</p>
+        <div class="card-icon">⚡</div>
+        <h3>双模路由</h3>
+        <p>直调模式高速透传，智能模式上下文感知对话。两种模式按需切换。</p>
       </div>
       <div class="card reveal">
-        <div class="card-icon neon-cyan">🪶</div>
-        <h3>极轻依赖</h3>
-        <p>仅依赖 Python 标准库 + aiohttp + websockets。没有重型框架，没有版本地狱。</p>
+        <div class="card-icon">🪶</div>
+        <h3>轻量依赖</h3>
+        <p>Python 3.10+ 标准库 + fastapi + websockets。无重型框架。</p>
       </div>
       <div class="card reveal">
-        <div class="card-icon neon-white">🧠</div>
-        <h3>低认知负担</h3>
-        <p>代码即文档。核心逻辑不超过 300 行，看完就能改，改完就能用。</p>
+        <div class="card-icon">🧠</div>
+        <h3>插件扩展</h3>
+        <p>一个异步函数就是一个插件。分群开关、即时生效、无需重启。</p>
       </div>
     </div>
   </div>
@@ -289,34 +214,34 @@ section {
 <!-- ===== FEATURES ===== -->
 <section id="features">
   <div class="container">
-    <h2 class="reveal"><span class="neon-cyan">功能</span>概览</h2>
+    <h2 class="reveal">功能概览</h2>
     <div class="feature-list">
       <div class="feature-item reveal">
         <div class="feature-num">01</div>
         <div class="feature-text">
-          <h3>双模式消息路由</h3>
-          <p>支持直接透传与智能 LLM 回复两种路由模式。简单消息走高速通道，复杂对话走 AI 大脑。</p>
+          <h3>AI 双模对话</h3>
+          <p>直调模式：低延迟透传；智能模式：Claude 代理 + 持续上下文。</p>
         </div>
       </div>
       <div class="feature-item reveal">
         <div class="feature-num">02</div>
         <div class="feature-text">
-          <h3>QQ ↔ 任意平台桥接</h3>
-          <p>基于 go-cqhttp / NapCat 协议适配器，无缝桥接 QQ 群、私聊与自定义后端服务。</p>
+          <h3>主动发言</h3>
+          <p>开启全量群消息权限后，机器人每 4~8 条群消息随机触发，自然接话。</p>
         </div>
       </div>
       <div class="feature-item reveal">
         <div class="feature-num">03</div>
         <div class="feature-text">
-          <h3>热配置重载</h3>
-          <p>修改配置无需重启进程。文件变动自动感知，即时生效，服务零中断。</p>
+          <h3>跑团骰子</h3>
+          <p>群内发送 .r d20 / .r 3d6 / .r 100，本地秒回结果。</p>
         </div>
       </div>
       <div class="feature-item reveal">
         <div class="feature-num">04</div>
         <div class="feature-text">
-          <h3>极简插件接口</h3>
-          <p>一个函数就是一个插件。接收消息字典，返回字符串或 None。没有继承，没有装饰器地狱。</p>
+          <h3>WebUI 面板</h3>
+          <p>群设置、管道状态、知识库、插件管理、手动发消息、实时日志。</p>
         </div>
       </div>
     </div>
@@ -326,83 +251,54 @@ section {
 <!-- ===== ARCHITECTURE ===== -->
 <section id="architecture">
   <div class="container">
-    <h2 class="reveal"><span class="neon-pink">Simple</span> Architecture</h2>
+    <h2 class="reveal">Simple Architecture</h2>
     <div class="arch-box reveal">
       <div class="arch-node qq">
         <span>QQ 客户端</span>
-        <span class="label">go-cqhttp / NapCat</span>
+        <span class="label">NapCat / SnowLuma</span>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node core">
-        <span>QQ Relay</span>
-        <span class="label">核心转发层</span>
+        <span>relay.py</span>
+        <span class="label">路由 + 插件 + 分发</span>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node llm">
-        <span>后端服务</span>
-        <span class="label">LLM / API / 自定义</span>
+        <span>AI 后端</span>
+        <span class="label">Claude → DeepSeek</span>
       </div>
     </div>
     <p class="desc reveal">三层架构，职责清晰。中间层只做一件事：把 QQ 消息送到该去的地方，再把回复带回来。</p>
   </div>
 </section>
 
-<!-- ===== ROUTING ===== -->
-<section id="routing">
-  <div class="container">
-    <h2 class="reveal"><span class="neon-cyan">Dual</span> Routing</h2>
-    <div class="routes">
-      <div class="route direct reveal">
-        <span class="route-tag">DIRECT</span>
-        <h3>直接路由</h3>
-        <ul>
-          <li>消息透传，零延迟</li>
-          <li>适合通知、Webhook、指令转发</li>
-          <li>无需 LLM 调用，零 Token 消耗</li>
-          <li>可配置白名单/正则匹配</li>
-        </ul>
-      </div>
-      <div class="route smart reveal">
-        <span class="route-tag">SMART</span>
-        <h3>智能路由</h3>
-        <ul>
-          <li>上下文感知对话</li>
-          <li>对接 OpenAI / DeepSeek / 本地模型</li>
-          <li>自动切换多模型兜底</li>
-          <li>支持系统提示词与角色设定</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-</section>
-
 <!-- ===== CODE SIZE ===== -->
 <section id="code-size">
   <div class="container">
-    <h2 class="reveal"><span class="neon-pink">Small</span> Codebase</h2>
+    <h2 class="reveal">Small Codebase</h2>
     <div class="stats">
       <div class="stat reveal">
-        <div class="stat-value">&lt;500</div>
+        <div class="stat-value">~1.5k</div>
         <div class="stat-label">行核心代码</div>
       </div>
       <div class="stat reveal">
-        <div class="stat-value">3</div>
-        <div class="stat-label">个外部依赖</div>
+        <div class="stat-value">4</div>
+        <div class="stat-label">个核心依赖</div>
       </div>
       <div class="stat reveal">
         <div class="stat-value">0</div>
-        <div class="stat-label">配置模板文件</div>
+        <div class="stat-label">Docker</div>
       </div>
     </div>
-    <p class="note reveal">不包含任何 YAML 配置地狱、没有抽象基类、没有元类魔法。你看到的每一行代码都在做一件具体的事。</p>
+    <p class="note reveal">不用 YAML、不用配置地狱。核心逻辑一个文件看下来就能改。</p>
   </div>
 </section>
 
 <!-- ===== COMPARISON ===== -->
 <section id="comparison">
   <div class="container">
-    <h2 class="reveal"><span class="neon-cyan">相比</span>常见方案</h2>
-    <div class="reveal" style="overflow-x:auto;">
+    <h2 class="reveal">相比常见方案</h2>
+    <div class="table-wrap reveal">
       <table>
         <tr>
           <th>特性</th>
@@ -411,40 +307,28 @@ section {
           <th>大型框架 B</th>
         </tr>
         <tr>
-          <td>核心代码量</td>
-          <td class="check">&lt;500 行</td>
+          <td>核心代码</td>
+          <td class="check">~1.5k 行</td>
           <td class="cross">10,000+ 行</td>
           <td class="cross">50,000+ 行</td>
         </tr>
         <tr>
           <td>部署时间</td>
-          <td class="check">&lt;5 分钟</td>
+          <td class="check">&lt;10 分钟</td>
           <td class="cross">30+ 分钟</td>
           <td class="cross">1+ 小时</td>
         </tr>
         <tr>
-          <td>Docker 依赖</td>
+          <td>Docker</td>
           <td class="check">不需要</td>
           <td class="cross">必需</td>
           <td class="cross">必需</td>
-        </tr>
-        <tr>
-          <td>配置复杂度</td>
-          <td class="check">单 JSON 文件</td>
-          <td class="cross">YAML + 环境变量</td>
-          <td class="cross">多文件 + 数据库</td>
         </tr>
         <tr>
           <td>插件开发</td>
           <td class="check">一个函数</td>
           <td class="cross">继承 + 注册</td>
           <td class="cross">复杂接口</td>
-        </tr>
-        <tr>
-          <td>维护成本</td>
-          <td class="check">极低</td>
-          <td class="cross">中</td>
-          <td class="cross">高</td>
         </tr>
       </table>
     </div>
@@ -454,15 +338,14 @@ section {
 <!-- ===== QUICK START ===== -->
 <section id="quickstart">
   <div class="container">
-    <h2 class="reveal"><span class="neon-pink">Quick</span> Start</h2>
+    <h2 class="reveal">Quick Start</h2>
     <div class="step-list">
       <div class="step reveal">
         <div class="step-num">1</div>
         <div class="step-text">
           <h3>克隆仓库</h3>
-          <p>一行命令下载源码。</p>
           <div class="code-block">
-            <span class="cmd">git</span> clone <span class="arg">https://github.com/Soenchin/qq-relay-bot.git</span> <span class="comment"># 下载源码</span>
+            <span class="cmd">git</span> clone <span class="arg">https://github.com/Soenchin/QQ-relay-Chatbot.git</span>
           </div>
         </div>
       </div>
@@ -470,20 +353,26 @@ section {
         <div class="step-num">2</div>
         <div class="step-text">
           <h3>安装依赖</h3>
-          <p>仅三个轻量依赖，秒装完成。</p>
           <div class="code-block">
-            <span class="cmd">pip</span> install -r requirements.txt <span class="comment"># aiohttp + websockets + pyyaml</span>
+            <span class="cmd">pip</span> install -r requirements.txt
           </div>
         </div>
       </div>
       <div class="step reveal">
         <div class="step-num">3</div>
         <div class="step-text">
-          <h3>配置并运行</h3>
-          <p>复制一份配置模板，填写你的 QQ 和 API 信息。</p>
+          <h3>配置</h3>
           <div class="code-block">
-            <span class="cmd">cp</span> config.example.json config.json <span class="comment"># 复制配置</span><br>
-            <span class="cmd">python</span> bot.py <span class="comment"># 启动服务</span>
+            <span class="cmd">cp</span> .env.example .env <span class="comment"># 编辑填写</span>
+          </div>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">4</div>
+        <div class="step-text">
+          <h3>启动</h3>
+          <div class="code-block">
+            <span class="cmd">py</span> -3.13 -u relay.py --webui
           </div>
         </div>
       </div>
@@ -494,70 +383,19 @@ section {
 <!-- ===== FOOTER ===== -->
 <section id="footer">
   <div class="container">
-    <h2 class="glitch" data-text="Build Small. Ship Fast.">Build Small. Ship Fast.</h2>
-    <p style="color:#555; font-size:14px;">Soenchin / QQ-relay-bot</p>
+    <h2>Talk to your bot.</h2>
+    <p style="color:#555; font-size:14px; margin-bottom: 12px;">Soenchin / QQ-relay-Chatbot</p>
     <div class="links">
-      <a href="https://github.com/Soenchin/qq-relay-bot">GitHub</a>
+      <a href="https://github.com/Soenchin/QQ-relay-Chatbot">GitHub</a>
       <a href="#quickstart">快速开始</a>
-      <a href="#architecture">架构说明</a>
+      <a href="https://github.com/SnowLuma/SnowLuma">SnowLuma</a>
+      <a href="https://github.com/NapNeko/NapCatQQ">NapCatQQ</a>
     </div>
-    <p class="copy">Released under GNU Affero General Public License v3.0 (AGPL-3.0).</p>
+    <p class="copy">AGPL-3.0 · Copyright (C) 2026 Soenchin</p>
   </div>
 </section>
 
 <script>
-// === BACKGROUND GRID ANIMATION ===
-(function() {
-  const canvas = document.getElementById('bg-canvas');
-  const ctx = canvas.getContext('2d');
-  let w, h, rows, cols, size = 40;
-  const lines = [];
-
-  function resize() {
-    w = canvas.width = window.innerWidth;
-    h = canvas.height = window.innerHeight;
-    rows = Math.ceil(h / size) + 1;
-    cols = Math.ceil(w / size) + 1;
-  }
-  resize();
-  window.addEventListener('resize', resize);
-
-  for (let r = 0; r < 20; r++) {
-    lines.push({
-      x: Math.random() * w,
-      y: Math.random() * h,
-      speed: 0.5 + Math.random() * 1.5,
-      len: 50 + Math.random() * 150,
-      alpha: 0.05 + Math.random() * 0.1,
-      color: Math.random() > 0.5 ? '#FF2E93' : '#00F0FF'
-    });
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, w, h);
-    // grid
-    ctx.strokeStyle = 'rgba(255,255,255,0.025)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= w; x += size) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-    for (let y = 0; y <= h; y += size) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-    // floating lines
-    lines.forEach(l => {
-      l.y += l.speed;
-      if (l.y > h + l.len) { l.y = -l.len; l.x = Math.random() * w; }
-      ctx.strokeStyle = l.color;
-      ctx.globalAlpha = l.alpha;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(l.x, l.y);
-      ctx.lineTo(l.x, l.y + l.len);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    });
-    requestAnimationFrame(draw);
-  }
-  draw();
-})();
-
 // === SCROLL REVEAL ===
 (function() {
   const observer = new IntersectionObserver((entries) => {
