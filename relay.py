@@ -16,14 +16,15 @@ import asyncio
 import json
 import os
 import random
-
+import re
 import subprocess
 import sys
 import uuid
 from collections import deque
-from pathlib import Path
-import time
 from datetime import datetime
+from pathlib import Path
+from urllib.parse import unquote
+import time
 
 # 手动加载 .env（免外部依赖）
 _env_path = Path(__file__).parent / ".env"
@@ -646,8 +647,54 @@ class RelayBot:
             chunks.append(buf.strip())
         return chunks if chunks else [msg]
 
+    def _sanitize_outbound_message(self, msg: str) -> str:
+        """发送前剥离本图床不存在的 CQ:image，避免图 404 导致整条消息失败。
+
+        - 仅校验 host.docker.internal / 127.0.0.1 + MEME_SERVER_PORT
+        - 外链图床原样放行
+        - 文件不存在则去掉该 CQ 段，保留文本
+        """
+        if not msg or "[CQ:image," not in msg:
+            return msg
+
+        markers = (
+            f"host.docker.internal:{MEME_SERVER_PORT}/",
+            f"127.0.0.1:{MEME_SERVER_PORT}/",
+            f"localhost:{MEME_SERVER_PORT}/",
+        )
+        cq_image_re = re.compile(r"\[CQ:image,([^\]]*)\]")
+
+        def repl(m: re.Match) -> str:
+            params = m.group(1)
+            fm = re.search(r"file=([^,\]]+)", params)
+            if not fm:
+                return m.group(0)
+            file_url = unquote(fm.group(1).strip())
+            marker = next((mk for mk in markers if mk in file_url), None)
+            if not marker:
+                return m.group(0)  # 外链放行
+            rel = file_url.split(marker, 1)[-1].lstrip("/")
+            # 防路径穿越：只允许相对 MEME_DIR 的 archive/unsorted 等子路径
+            path = (MEME_DIR / rel).resolve()
+            try:
+                path.relative_to(MEME_DIR.resolve())
+            except ValueError:
+                print(f"[图床] 发送前剥离越界路径: {rel}")
+                return ""
+            if path.is_file():
+                return m.group(0)
+            print(f"[图床] 发送前剥离不存在的图: {rel}")
+            return ""
+
+        cleaned = cq_image_re.sub(repl, msg)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
+
     async def send_group(self, gid: int, msg: str):
         if not self.ws or self.ws.close_code is not None:
+            return
+        msg = self._sanitize_outbound_message(msg)
+        if not msg.strip():
             return
         chunks = self._split_message(msg)
         for i, chunk in enumerate(chunks):
@@ -669,7 +716,10 @@ def start_meme_http_server():
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(MEME_DIR), **kwargs)
         def log_message(self, fmt, *args):
-            print(f"[图床] {args[0]} {args[1]} {args[2]}")
+            try:
+                print(f"[图床] {fmt % args}")
+            except Exception:
+                print(f"[图床] {args}")
 
     try:
         server = http.server.HTTPServer(("0.0.0.0", MEME_SERVER_PORT), MemeHandler)
