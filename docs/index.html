@@ -1,409 +1,192 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QQ Relay Chatbot</title>
-<style>
-/* === RESET & BASE === */
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body {
-  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #0a0a0a; color: #e0e0e0;
-  overflow-x: hidden; line-height: 1.7;
-}
-
-/* === SCROLLBAR === */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #0a0a0a; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-
-/* === SECTIONS === */
-section {
-  position: relative; z-index: 1;
-  width: 100%; min-height: 100vh;
-  display: flex; flex-direction: column; justify-content: center; align-items: center;
-  padding: 80px 24px;
-}
-.container { width: 100%; max-width: 1000px; margin: 0 auto; }
-
-/* === HERO === */
-#hero { text-align: center; min-height: 100vh; }
-#hero .badge {
-  display: inline-block; padding: 6px 16px; border-radius: 3px;
-  background: #1a1a1a; color: #4ade80; font-size: 11px; letter-spacing: 2px;
-  text-transform: uppercase; margin-bottom: 28px;
-  border: 1px solid #2a2a2a;
-}
-#hero h1 {
-  font-size: clamp(2.8rem, 9vw, 6rem); font-weight: 900; margin-bottom: 16px;
-  line-height: 1.05; color: #fff; letter-spacing: -2px;
-}
-#hero .subtitle {
-  font-size: clamp(1rem, 2.5vw, 1.3rem); color: #999; max-width: 560px;
-  margin: 0 auto 40px;
-}
-#hero .subtitle strong { color: #fb923c; font-weight: 600; }
-#hero .cta { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
-#hero .btn {
-  display: inline-block; padding: 14px 36px; border-radius: 4px; font-size: 15px;
-  font-weight: 600; text-decoration: none; transition: all 0.2s; cursor: pointer;
-  border: 1px solid;
-}
-#hero .btn-primary { background: #4ade80; color: #0a0a0a; border-color: #4ade80; }
-#hero .btn-primary:hover { background: #22c55e; border-color: #22c55e; }
-#hero .btn-ghost { background: transparent; color: #fb923c; border-color: #fb923c; }
-#hero .btn-ghost:hover { background: #fb923c; color: #0a0a0a; }
-#hero .scroll-hint { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #444; }
-
-/* === PHILOSOPHY === */
-#philosophy { background: #0d0d0d; }
-#philosophy h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 16px; text-align: center; color: #fff; font-weight: 800; }
-#philosophy .section-desc { text-align: center; color: #888; max-width: 560px; margin: 0 auto 50px; }
-#philosophy .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; }
-#philosophy .card {
-  background: #111; border: 1px solid #1a1a1a; border-radius: 8px;
-  padding: 32px; transition: all 0.25s;
-}
-#philosophy .card:hover { border-color: #4ade80; transform: translateY(-3px); }
-#philosophy .card-icon { font-size: 28px; margin-bottom: 12px; }
-#philosophy .card h3 { font-size: 1.15rem; margin-bottom: 8px; color: #fff; }
-#philosophy .card p { font-size: 14px; color: #888; }
-
-/* === FEATURES === */
-#features { background: #0a0a0a; }
-#features h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
-#features .feature-list { display: flex; flex-direction: column; gap: 24px; max-width: 800px; margin: 0 auto; }
-#features .feature-item {
-  display: flex; gap: 24px; align-items: flex-start;
-  padding: 24px; background: #111; border: 1px solid #1a1a1a; border-radius: 8px;
-  transition: all 0.25s;
-}
-#features .feature-item:hover { border-color: #fb923c; }
-#features .feature-num {
-  font-size: 1.8rem; font-weight: 900; color: #333; min-width: 48px;
-  text-align: center; line-height: 1;
-}
-#features .feature-text h3 { font-size: 1.15rem; color: #fff; margin-bottom: 6px; }
-#features .feature-text p { color: #888; font-size: 14px; }
-
-/* === ARCHITECTURE === */
-#architecture { background: #0d0d0d; }
-#architecture h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
-#architecture .arch-box {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 24px;
-  align-items: center; max-width: 800px; margin: 0 auto;
-}
-#architecture .arch-node {
-  width: 160px; height: 80px; border-radius: 6px; display: flex;
-  align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
-  flex-direction: column; gap: 4px; border: 1px solid;
-}
-#architecture .arch-node.qq { background: #0d1a0d; border-color: #4ade8055; color: #4ade80; }
-#architecture .arch-node.core { background: #1a0d0d; border-color: #fb923c55; color: #fb923c; }
-#architecture .arch-node.llm { background: #111; border-color: #333; color: #ccc; }
-#architecture .arch-node .label { font-size: 12px; opacity: 0.6; font-weight: 400; }
-#architecture .arch-arrow { font-size: 20px; color: #333; }
-#architecture .desc { text-align: center; max-width: 540px; margin: 40px auto 0 auto; color: #777; font-size: 15px; }
-
-/* === CODE SIZE === */
-#code-size { background: #0a0a0a; }
-#code-size h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
-#code-size .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 50px; max-width: 700px; margin: 0 auto; }
-#code-size .stat { text-align: center; }
-#code-size .stat-value { font-size: clamp(3rem, 8vw, 5rem); font-weight: 900; line-height: 1; color: #4ade80; }
-#code-size .stat-label { font-size: 15px; color: #777; margin-top: 8px; }
-#code-size .note { text-align: center; max-width: 540px; margin: 40px auto 0 auto; color: #666; font-size: 15px; }
-
-/* === QUICK START === */
-#quickstart { background: #0d0d0d; }
-#quickstart h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
-#quickstart .step-list { max-width: 650px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
-#quickstart .step { display: flex; gap: 20px; align-items: flex-start; }
-#quickstart .step-num {
-  width: 38px; height: 38px; border-radius: 4px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px;
-  background: #1a1a1a; color: #fb923c; border: 1px solid #2a2a2a;
-}
-#quickstart .step-text h3 { font-size: 1.05rem; color: #fff; margin-bottom: 6px; }
-#quickstart .step-text p { color: #888; font-size: 14px; margin-bottom: 10px; }
-#quickstart .code-block {
-  background: #111; border: 1px solid #1a1a1a; border-radius: 6px;
-  padding: 12px 18px; font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 14px; color: #bbb; overflow-x: auto; white-space: nowrap;
-}
-#quickstart .code-block .comment { color: #555; }
-#quickstart .code-block .cmd { color: #4ade80; }
-#quickstart .code-block .arg { color: #fb923c; }
-
-/* === COMPARISON === */
-#comparison { background: #0a0a0a; }
-#comparison h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 50px; text-align: center; color: #fff; font-weight: 800; }
-#comparison .table-wrap { overflow-x: auto; width: 100%; max-width: 780px; margin: 0 auto; }
-#comparison table { width: 100%; border-collapse: collapse; font-size: 14px; }
-#comparison th, #comparison td { padding: 14px 18px; text-align: left; border-bottom: 1px solid #1a1a1a; }
-#comparison th { color: #fb923c; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
-#comparison td { color: #aaa; }
-#comparison td:first-child { color: #ccc; }
-#comparison .check { color: #4ade80; font-weight: 700; }
-#comparison .cross { color: #555; }
-
-/* === FOOTER === */
-#footer { min-height: 40vh; text-align: center; padding: 60px 24px; background: #050505; }
-#footer h2 { font-size: clamp(1.8rem, 5vw, 3rem); margin-bottom: 16px; color: #fff; font-weight: 800; }
-#footer .links { display: flex; gap: 28px; justify-content: center; flex-wrap: wrap; margin-top: 28px; }
-#footer .links a { color: #666; text-decoration: none; font-size: 14px; transition: color 0.2s; }
-#footer .links a:hover { color: #4ade80; }
-#footer .copy { margin-top: 40px; font-size: 13px; color: #333; }
-
-/* === REVEAL === */
-.reveal { opacity: 0; transform: translateY(30px); transition: all 0.7s ease-out; }
-.reveal.visible { opacity: 1; transform: translateY(0); }
-
-/* === RESPONSIVE === */
-@media (max-width: 640px) {
-  section { padding: 50px 16px; }
-  #architecture .arch-arrow { display: none; }
-  #architecture .arch-box { flex-direction: column; gap: 16px; }
-  .feature-item { flex-direction: column; gap: 12px; }
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="QQ Relay Chatbot — OneBot v11 QQ 群聊 AI 中继，支持 direct / pipe 双模式、读图、链接摘要、插件与 WebUI。">
+  <title>QQ Relay Chatbot · 群聊 AI 中继</title>
+  <style>
+    :root { --bg:#090d14; --panel:#101722; --panel-2:#141d2a; --line:rgba(198,214,231,.14); --text:#edf4fb; --muted:#91a0b1; --blue:#75b9ff; --cyan:#66e1cc; --lime:#b8ed76; --orange:#ffb86a; --r:18px; }
+    * { box-sizing:border-box; margin:0; }
+    html { scroll-behavior:smooth; }
+    body { min-width:320px; overflow-x:hidden; color:var(--text); background:var(--bg); font-family:Inter,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; line-height:1.65; }
+    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.45; background-image:linear-gradient(rgba(148,173,201,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(148,173,201,.045) 1px,transparent 1px); background-size:52px 52px; mask-image:linear-gradient(to bottom,#000,transparent 82%); }
+    a { color:inherit; text-decoration:none; }
+    a:focus-visible { outline:3px solid var(--cyan); outline-offset:4px; border-radius:6px; }
+    .skip-link { position:fixed; z-index:20; top:12px; left:50%; padding:11px 16px; color:#061018; background:var(--cyan); border-radius:9px; font-size:14px; font-weight:800; transform:translate(-50%,-180%); transition:transform .18s ease; }
+    .skip-link:focus { transform:translate(-50%,0); }
+    .shell { width:min(1160px,calc(100% - 40px)); margin:auto; position:relative; z-index:1; }
+    .nav { height:76px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid var(--line); }
+    .brand { display:flex; align-items:center; gap:12px; font-size:15px; font-weight:800; letter-spacing:.2px; }
+    .brand-mark { width:29px; height:29px; position:relative; transform:rotate(45deg); border:1px solid var(--cyan); background:linear-gradient(135deg,rgba(102,225,204,.35),rgba(117,185,255,.1)); }
+    .brand-mark::after { content:""; position:absolute; inset:7px; border:1px solid var(--blue); }
+    .nav-links { display:flex; align-items:center; gap:23px; color:var(--muted); font-size:14px; font-weight:600; }
+    .nav-links a { min-height:44px; display:inline-flex; align-items:center; }
+    .nav-links a:hover { color:var(--text); }
+    .nav-links a[aria-current="page"] { color:var(--cyan); }
+    .nav-gh { padding:9px 14px; border:1px solid var(--line); border-radius:9px; color:var(--text)!important; }
+    .hero { min-height:660px; display:grid; grid-template-columns:1.08fr .92fr; align-items:center; gap:60px; padding:78px 0 94px; }
+    .eyebrow,.kicker { color:var(--cyan); font-size:12px; font-weight:800; letter-spacing:1.35px; }
+    h1 { max-width:700px; margin:15px 0 21px; font-size:clamp(48px,6vw,82px); line-height:.98; letter-spacing:-3.8px; }
+    h1 .accent { color:var(--cyan); }
+    .lead { max-width:600px; color:var(--muted); font-size:18px; }
+    .lead strong { color:var(--text); font-weight:700; }
+    .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:31px; }
+    .btn { display:inline-flex; align-items:center; justify-content:center; min-height:48px; padding:0 19px; border-radius:10px; border:1px solid var(--line); font-size:15px; font-weight:800; transition:.18s ease; }
+    .btn.primary { color:#07130a; background:#b8ed76; border-color:#b8ed76; }
+    .btn.primary:hover { transform:translateY(-2px); box-shadow:0 13px 34px rgba(184,237,118,.18); }
+    .btn.ghost { color:var(--text); background:rgba(255,255,255,.025); }
+    .btn.ghost:hover { border-color:rgba(117,185,255,.65); background:rgba(117,185,255,.08); }
+    .meta { display:flex; flex-wrap:wrap; gap:10px 21px; margin-top:30px; color:#718096; font-size:13px; }
+    .meta span::before { content:"◆"; margin-right:7px; color:var(--blue); font-size:10px; }
+    .geometry { min-height:440px; position:relative; }
+    .geo-frame { position:absolute; inset:32px 0 0 42px; border:1px solid var(--line); clip-path:polygon(8% 0,100% 0,100% 83%,86% 100%,0 100%,0 14%); background:linear-gradient(135deg,rgba(117,185,255,.08),rgba(102,225,204,.025)); }
+    .geo-frame::before { content:""; position:absolute; width:258px; height:258px; top:57px; right:35px; transform:rotate(45deg); border:1px solid rgba(102,225,204,.45); box-shadow:0 0 0 22px rgba(102,225,204,.025),0 0 0 62px rgba(117,185,255,.02); }
+    .geo-frame::after { content:""; position:absolute; width:170px; height:170px; bottom:-33px; left:41px; transform:rotate(30deg); background:linear-gradient(135deg,rgba(184,237,118,.35),rgba(184,237,118,0)); clip-path:polygon(50% 0,100% 100%,0 100%); }
+    .flow-card { position:absolute; top:103px; left:0; width:min(390px,90%); padding:21px; background:rgba(16,23,34,.94); border:1px solid rgba(117,185,255,.33); border-radius:14px; box-shadow:20px 24px 60px rgba(0,0,0,.35); backdrop-filter:blur(12px); }
+    .flow-title { display:flex; justify-content:space-between; align-items:center; margin-bottom:19px; font-size:13px; color:var(--muted); font-weight:800; letter-spacing:.8px; }
+    .live { display:flex; align-items:center; gap:7px; color:var(--cyan); font-size:11px; }
+    .live i { width:7px; height:7px; border-radius:50%; background:var(--cyan); box-shadow:0 0 12px var(--cyan); }
+    .flow { display:grid; grid-template-columns:1fr 18px 1.18fr; gap:8px; align-items:center; }
+    .flow-node { min-height:61px; padding:11px 12px; border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.025); font-size:13px; font-weight:800; }
+    .flow-node small { display:block; margin-top:3px; color:var(--muted); font-size:11px; font-weight:600; }
+    .flow-arrow { color:var(--cyan); text-align:center; }
+    .route { grid-column:1 / -1; display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:5px; }
+    .route div { padding:10px; border-radius:8px; font-size:12px; font-weight:700; }
+    .route .direct { background:rgba(117,185,255,.12); color:#b8d8ff; }
+    .route .pipe { background:rgba(184,237,118,.1); color:#d6faab; }
+    .section { padding:105px 0; border-top:1px solid var(--line); position:relative; z-index:1; }
+    .section-head { display:flex; justify-content:space-between; gap:30px; align-items:end; margin-bottom:42px; }
+    h2 { margin-top:10px; font-size:clamp(31px,4vw,50px); line-height:1.05; letter-spacing:-1.8px; }
+    .section-copy { max-width:450px; color:var(--muted); font-size:16px; }
+    .capabilities { display:grid; grid-template-columns:repeat(12,1fr); gap:15px; }
+    .feature { min-height:224px; padding:24px; overflow:hidden; position:relative; border:1px solid var(--line); border-radius:var(--r); background:linear-gradient(145deg,rgba(20,29,42,.9),rgba(13,19,29,.8)); transition:transform .2s,border-color .2s; }
+    .feature:hover { transform:translateY(-4px); border-color:rgba(117,185,255,.45); }
+    .feature::after { content:""; position:absolute; width:100px; height:100px; right:-40px; bottom:-45px; border:1px solid rgba(117,185,255,.2); transform:rotate(45deg); }
+    .feature .num { color:var(--blue); font-size:12px; letter-spacing:1px; font-weight:900; }
+    .feature h3 { margin:24px 0 9px; font-size:21px; letter-spacing:-.5px; }
+    .feature p { position:relative; z-index:1; color:var(--muted); font-size:14px; }
+    .feature.big { grid-column:span 5; background:linear-gradient(145deg,rgba(21,47,66,.85),rgba(15,26,38,.9)); }
+    .feature.mid { grid-column:span 4; }
+    .feature.small { grid-column:span 3; }
+    .mode-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .mode { min-height:366px; padding:31px; position:relative; overflow:hidden; border:1px solid var(--line); border-radius:var(--r); background:var(--panel); }
+    .mode::before { content:""; position:absolute; width:190px; height:190px; right:-60px; top:-70px; transform:rotate(45deg); border:1px solid currentColor; opacity:.25; }
+    .mode.direct { color:var(--blue); }
+    .mode.pipe { color:var(--lime); }
+    .mode-tag { display:inline-block; padding:5px 9px; border:1px solid currentColor; border-radius:5px; font-size:11px; font-weight:900; letter-spacing:1px; }
+    .mode h3 { margin:18px 0 10px; color:var(--text); font-size:30px; letter-spacing:-1px; }
+    .mode > p { max-width:440px; color:var(--muted); font-size:15px; }
+    .mode ul { margin-top:25px; display:grid; gap:10px; list-style:none; color:#c2cfdb; font-size:14px; }
+    .mode li::before { content:"/"; margin-right:11px; color:currentColor; font-weight:900; }
+    .vision-band { margin-top:18px; display:grid; grid-template-columns:1.2fr .8fr; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--panel); }
+    .vision-copy { padding:31px; }
+    .vision-copy h3 { margin:10px 0; font-size:27px; letter-spacing:-.8px; }
+    .vision-copy p { color:var(--muted); font-size:15px; }
+    .vision-steps { display:grid; grid-template-columns:repeat(4,1fr); background:linear-gradient(135deg,rgba(102,225,204,.08),rgba(117,185,255,.06)); }
+    .vision-steps div { display:flex; flex-direction:column; justify-content:flex-end; min-height:182px; padding:18px; border-left:1px solid var(--line); font-size:13px; font-weight:800; }
+    .vision-steps b { display:block; margin-bottom:8px; color:var(--cyan); font-size:25px; line-height:1; }
+    .plugin-grid { display:grid; grid-template-columns:1.2fr .8fr .8fr; gap:16px; }
+    .plugin-main,.plugin-mini { border:1px solid var(--line); border-radius:var(--r); background:var(--panel); }
+    .plugin-main { padding:29px; background:linear-gradient(135deg,rgba(255,184,106,.1),rgba(16,23,34,.95) 47%); }
+    .plugin-main h3,.plugin-mini h3 { margin:12px 0 8px; font-size:22px; }
+    .plugin-main p,.plugin-mini p { color:var(--muted); font-size:14px; }
+    .plugin-main code { display:block; margin-top:21px; padding:13px; overflow:auto; color:#c8e5ff; background:#080c12; border-radius:9px; font:12px/1.6 "Cascadia Code",Consolas,monospace; }
+    .plugin-mini { padding:27px; }
+    .quick { display:grid; grid-template-columns:.78fr 1.22fr; gap:44px; align-items:start; }
+    .quick ol { display:grid; gap:13px; list-style:none; counter-reset:step; }
+    .quick li { padding:15px 16px 15px 53px; position:relative; border:1px solid var(--line); border-radius:10px; color:#cbd7e4; font-size:15px; }
+    .quick li::before { counter-increment:step; content:counter(step); position:absolute; left:15px; top:14px; color:var(--cyan); font-weight:900; }
+    .code { padding:24px; overflow:auto; border:1px solid var(--line); border-radius:var(--r); background:#060a10; color:#c8d6e5; font:14px/1.85 "Cascadia Code",Consolas,monospace; }
+    .code .comment { color:#5d7184; }.code .cmd { color:var(--cyan); }.code .arg { color:var(--orange); }
+    footer { padding:62px 0 42px; border-top:1px solid var(--line); position:relative; z-index:1; }
+    .foot { display:flex; justify-content:space-between; align-items:end; gap:20px; color:#718096; font-size:13px; }.foot strong { display:block; color:var(--text); font-size:19px; }.foot-links { display:flex; gap:18px; }.foot-links a:hover { color:var(--cyan); }
+    .reveal { opacity:0; transform:translateY(20px); transition:opacity .42s ease-out,transform .42s ease-out; }.reveal.visible { opacity:1; transform:none; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; transition-duration:.01ms!important; } .reveal { opacity:1; transform:none; } }
+    @media(max-width:860px){ .hero{grid-template-columns:1fr;padding-top:62px}.geometry{min-height:380px;max-width:570px;width:100%}.feature.big,.feature.mid,.feature.small{grid-column:span 6}.vision-band,.quick{grid-template-columns:1fr}.vision-steps{min-height:140px}.mode-grid,.plugin-grid{grid-template-columns:1fr}.section-head{display:block}.section-copy{margin-top:17px}.nav-links a:not(.nav-gh){display:none} }
+    @media(max-width:580px){ .shell{width:min(100% - 28px,1160px)}.nav{height:67px}.hero{min-height:auto;padding-bottom:68px}h1{font-size:50px;letter-spacing:-2.5px}.lead{font-size:16px}.geometry{min-height:310px}.flow-card{top:72px;padding:16px}.geo-frame{inset:21px 0 0 22px}.feature.big,.feature.mid,.feature.small{grid-column:span 12}.section{padding:70px 0}.vision-steps{grid-template-columns:1fr 1fr}.vision-steps div{min-height:110px;border-top:1px solid var(--line)}.settings-stats{display:none}.foot{display:block}.foot-links{margin-top:18px;flex-wrap:wrap} }
+  </style>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <div class="shell">
+    <nav class="nav">
+      <a class="brand" href="#main-content"><span class="brand-mark"></span><span>QQ Relay Chatbot</span></a>
+      <div class="nav-links"><a href="#features">能力</a><a href="#modes">双模式</a><a href="#quickstart">开始</a><a class="nav-gh" href="https://github.com/Soenchin/QQ-relay-Chatbot">GitHub ↗</a></div>
+    </nav>
 
-<!-- ===== HERO ===== -->
-<section id="hero">
-  <div class="container">
-    <div class="badge">Soenchin / QQ-relay-Chatbot</div>
-    <h1>QQ Relay<br>Chatbot</h1>
-    <p class="subtitle">基于 OneBot v11 的群聊 AI 机器人<br>双模路由 · 插件扩展 · 活跃群聊氛围</p>
-    <div class="cta">
-      <a href="#quickstart" class="btn btn-primary">快速开始</a>
-      <a href="https://github.com/Soenchin/QQ-relay-Chatbot" class="btn btn-ghost">GitHub →</a>
-    </div>
-  </div>
-  <div class="scroll-hint">▼ 向下滚动了解更多</div>
-</section>
-
-<!-- ===== PHILOSOPHY ===== -->
-<section id="philosophy">
-  <div class="container">
-    <h2 class="reveal">Keep It Small</h2>
-    <p class="section-desc reveal">不堆功能、不造轮子。只做一件事：让 AI 进入 QQ 群聊。</p>
-    <div class="cards">
-      <div class="card reveal">
-        <div class="card-icon">⚡</div>
-        <h3>双模路由</h3>
-        <p>直调模式高速透传，智能模式上下文感知对话。两种模式按需切换。</p>
-      </div>
-      <div class="card reveal">
-        <div class="card-icon">🪶</div>
-        <h3>轻量依赖</h3>
-        <p>Python 3.10+ 标准库 + fastapi + websockets。无重型框架。</p>
-      </div>
-      <div class="card reveal">
-        <div class="card-icon">🧠</div>
-        <h3>插件扩展</h3>
-        <p>一个异步函数就是一个插件。分群开关、即时生效、无需重启。</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ===== FEATURES ===== -->
-<section id="features">
-  <div class="container">
-    <h2 class="reveal">功能概览</h2>
-    <div class="feature-list">
-      <div class="feature-item reveal">
-        <div class="feature-num">01</div>
-        <div class="feature-text">
-          <h3>AI 双模对话</h3>
-          <p>直调模式：低延迟透传；智能模式：Claude 代理 + 持续上下文。</p>
+    <main id="main-content" tabindex="-1">
+      <section class="hero">
+        <div class="reveal">
+          <p class="eyebrow">ONEBOT V11 · QQ GROUP AI RELAY</p>
+          <h1>让 AI <span class="accent">真正参与</span><br>群聊。</h1>
+          <p class="lead"><strong>QQ Relay Chatbot</strong> 用 direct / pipe 双模式处理不同群场景，再加上插件、读图和 WebUI，把中继做成可控的群聊工作台。</p>
+          <div class="actions"><a class="btn primary" href="#quickstart">开始部署</a><a class="btn ghost" href="https://github.com/Soenchin/QQ-relay-Chatbot">查看仓库 ↗</a></div>
+          <div class="meta"><span>Python + FastAPI</span><span>SnowLuma / NapCatQQ</span><span>AGPL-3.0</span></div>
         </div>
-      </div>
-      <div class="feature-item reveal">
-        <div class="feature-num">02</div>
-        <div class="feature-text">
-          <h3>主动发言</h3>
-          <p>开启全量群消息权限后，机器人每 4~8 条群消息随机触发，自然接话。</p>
-        </div>
-      </div>
-      <div class="feature-item reveal">
-        <div class="feature-num">03</div>
-        <div class="feature-text">
-          <h3>跑团骰子</h3>
-          <p>群内发送 .r d20 / .r 3d6 / .r 100，本地秒回结果。</p>
-        </div>
-      </div>
-      <div class="feature-item reveal">
-        <div class="feature-num">04</div>
-        <div class="feature-text">
-          <h3>WebUI 面板</h3>
-          <p>群设置、管道状态、知识库、插件管理、手动发消息、实时日志。</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ===== ARCHITECTURE ===== -->
-<section id="architecture">
-  <div class="container">
-    <h2 class="reveal">Simple Architecture</h2>
-    <div class="arch-box reveal">
-      <div class="arch-node qq">
-        <span>QQ 客户端</span>
-        <span class="label">NapCat / SnowLuma</span>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node core">
-        <span>relay.py</span>
-        <span class="label">路由 + 插件 + 分发</span>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node llm">
-        <span>AI 后端</span>
-        <span class="label">Claude → DeepSeek</span>
-      </div>
-    </div>
-    <p class="desc reveal">三层架构，职责清晰。中间层只做一件事：把 QQ 消息送到该去的地方，再把回复带回来。</p>
-  </div>
-</section>
-
-<!-- ===== CODE SIZE ===== -->
-<section id="code-size">
-  <div class="container">
-    <h2 class="reveal">Small Codebase</h2>
-    <div class="stats">
-      <div class="stat reveal">
-        <div class="stat-value">~1.5k</div>
-        <div class="stat-label">行核心代码</div>
-      </div>
-      <div class="stat reveal">
-        <div class="stat-value">4</div>
-        <div class="stat-label">个核心依赖</div>
-      </div>
-      <div class="stat reveal">
-        <div class="stat-value">0</div>
-        <div class="stat-label">Docker</div>
-      </div>
-    </div>
-    <p class="note reveal">不用 YAML、不用配置地狱。核心逻辑一个文件看下来就能改。</p>
-  </div>
-</section>
-
-<!-- ===== COMPARISON ===== -->
-<section id="comparison">
-  <div class="container">
-    <h2 class="reveal">相比常见方案</h2>
-    <div class="table-wrap reveal">
-      <table>
-        <tr>
-          <th>特性</th>
-          <th>QQ Relay</th>
-          <th>大型框架 A</th>
-          <th>大型框架 B</th>
-        </tr>
-        <tr>
-          <td>核心代码</td>
-          <td class="check">~1.5k 行</td>
-          <td class="cross">10,000+ 行</td>
-          <td class="cross">50,000+ 行</td>
-        </tr>
-        <tr>
-          <td>部署时间</td>
-          <td class="check">&lt;10 分钟</td>
-          <td class="cross">30+ 分钟</td>
-          <td class="cross">1+ 小时</td>
-        </tr>
-        <tr>
-          <td>Docker</td>
-          <td class="check">不需要</td>
-          <td class="cross">必需</td>
-          <td class="cross">必需</td>
-        </tr>
-        <tr>
-          <td>插件开发</td>
-          <td class="check">一个函数</td>
-          <td class="cross">继承 + 注册</td>
-          <td class="cross">复杂接口</td>
-        </tr>
-      </table>
-    </div>
-  </div>
-</section>
-
-<!-- ===== QUICK START ===== -->
-<section id="quickstart">
-  <div class="container">
-    <h2 class="reveal">Quick Start</h2>
-    <div class="step-list">
-      <div class="step reveal">
-        <div class="step-num">1</div>
-        <div class="step-text">
-          <h3>克隆仓库</h3>
-          <div class="code-block">
-            <span class="cmd">git</span> clone <span class="arg">https://github.com/Soenchin/QQ-relay-Chatbot.git</span>
+        <div class="geometry reveal">
+          <div class="geo-frame"></div>
+          <div class="flow-card">
+            <div class="flow-title"><span>MESSAGE ROUTING</span><span class="live"><i></i> LIVE</span></div>
+            <div class="flow"><div class="flow-node">QQ 群消息<small>OneBot v11</small></div><div class="flow-arrow">→</div><div class="flow-node">relay.py<small>分流 · 插件 · 中继</small></div><div class="route"><div class="direct">DIRECT<br><small>稳定的 @ 问答</small></div><div class="pipe">PIPE<br><small>上下文与主动接话</small></div></div></div>
           </div>
         </div>
-      </div>
-      <div class="step reveal">
-        <div class="step-num">2</div>
-        <div class="step-text">
-          <h3>安装依赖</h3>
-          <div class="code-block">
-            <span class="cmd">pip</span> install -r requirements.txt
-          </div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="section-head reveal"><div><p class="kicker">CAPABILITY SET</p><h2>多种功能预装。</h2></div><p class="section-copy">双模式对话、读图、链接摘要、插件和 WebUI 集成在同一套中继里。</p></div>
+        <div class="capabilities">
+          <article class="feature big reveal"><p class="num">01 / ROUTING</p><h3>双模式群聊</h3><p>直调模式仅在 @ 时回复；管道模式保留聊天窗口，并支持主动接话。两种模式按群自由切换。</p></article>
+          <article class="feature mid reveal"><p class="num">02 / VISION</p><h3>可控读图</h3><p>按群开启；图片压缩、生成短描述并临时保存，超时、超量或出窗后自动清理。</p></article>
+          <article class="feature small reveal"><p class="num">03 / LINKS</p><h3>链接摘要</h3><p>B 站、GitHub 与通用网页；过滤 CQ 图片链，做限流和失败兜底。</p></article>
+          <article class="feature small reveal"><p class="num">04 / PLUGINS</p><h3>三类插件</h3><p>消息、notice、request。全局和分群开关由 WebUI 管理。</p></article>
+          <article class="feature mid reveal"><p class="num">05 / WEBUI</p><h3>群聊工作台</h3><p>现代化群设置、读图开关、管道状态、知识库、人设、插件与实时日志都在本机浏览器里。</p></article>
+          <article class="feature big reveal"><p class="num">06 / SAFETY</p><h3>把边界留在中继层</h3><p>管道默认只读；只有主人 @ 才提高工具权限。发送图片前校验本地图床路径，失效图片不会吞掉整段文字。</p></article>
         </div>
-      </div>
-      <div class="step reveal">
-        <div class="step-num">3</div>
-        <div class="step-text">
-          <h3>配置</h3>
-          <div class="code-block">
-            <span class="cmd">cp</span> .env.example .env <span class="comment"># 编辑填写</span>
-          </div>
+      </section>
+
+      <section class="section" id="modes">
+        <div class="section-head reveal"><div><p class="kicker">TWO MODES</p><h2>两种模式，自由切换。</h2></div><p class="section-copy">按群配置 direct 或 pipe，适配不同的聊天方式。</p></div>
+        <div class="mode-grid">
+          <article class="mode direct reveal"><span class="mode-tag">DIRECT</span><h3>直调模式</h3><p>面向跑团、工具问答或想保持安静的群。只有 @ 机器人时才请求 API。</p><ul><li>最多 50 条本地对话历史</li><li>主人可用 `!` 管理命令</li><li>响应路径短，行为可预期</li><li>适合作为默认 fallback</li></ul></article>
+          <article class="mode pipe reveal"><span class="mode-tag">PIPE</span><h3>管道模式</h3><p>面向日常聊天群。CLI 会话与最近 30 条消息共同维持语境，4–8 条普通消息后随机接话。</p><ul><li>每群独立 session UUID</li><li>默认只读工具权限</li><li>主人 @ 时才开放写工具</li><li>表情包与图片描述按上下文介入</li></ul></article>
         </div>
-      </div>
-      <div class="step reveal">
-        <div class="step-num">4</div>
-        <div class="step-text">
-          <h3>启动</h3>
-          <div class="code-block">
-            <span class="cmd">py</span> -3.13 -u relay.py --webui
-          </div>
+        <div class="vision-band reveal"><div class="vision-copy"><p class="kicker">GROUP VISION</p><h3>读图模式可控。</h3><p>只给指定的 pipe 群开启。中继会下载、压缩和描述图片，再把短描述写进聊天上下文；超时、超量或出窗图片都会自动清理。</p></div><div class="vision-steps"><div><b>01</b>下载 / get_image 兜底</div><div><b>02</b>压缩与 GIF 首帧</div><div><b>03</b>多模态短描述</div><div><b>04</b>文字进入上下文</div></div></div>
+      </section>
+
+      <section class="section" id="plugins">
+        <div class="section-head reveal"><div><p class="kicker">EXTENSIBILITY</p><h2>插件扩展简单直接。</h2></div><p class="section-copy">一个异步函数就是一个处理单元。不同事件走不同注册表，配置保存在 JSON 文件里。</p></div>
+        <div class="plugin-grid">
+          <article class="plugin-main reveal"><p class="kicker">MESSAGE PLUGIN</p><h3>链接摘要已内置</h3><p>对 Bilibili、GitHub 和普通网页做摘要；过滤 QQ 多媒体/CQ 图片链，同一链接去重，单群限流，抓取失败也有明确反馈。</p><code>async def my_plugin(bot, gid, uid, nick, text, is_at):
+    if "关键词" in text:
+        await bot.send_group(gid, "收到")
+        return True  # 截胡后续 AI
+    return False</code></article>
+          <article class="plugin-mini reveal"><p class="kicker">NOTICE</p><h3>通知事件</h3><p>戳一戳回戳、入群欢迎等 OneBot notice 都能独立注册和按群开关。</p></article>
+          <article class="plugin-mini reveal"><p class="kicker">REQUEST</p><h3>请求事件</h3><p>加群申请等 request 事件走专门钩子，不和普通聊天消息搅在一起。</p></article>
         </div>
-      </div>
-    </div>
+      </section>
+
+      <section class="section" id="quickstart">
+        <div class="section-head reveal"><div><p class="kicker">QUICKSTART</p><h2>十分钟，接上群聊。</h2></div><p class="section-copy">先准备 OneBot 实现与 Python。需要 pipe 时再额外安装 Claude Code CLI。</p></div>
+        <div class="quick reveal"><ol><li>安装 SnowLuma 或 NapCatQQ，并启用 OneBot v11 WebSocket。</li><li>克隆仓库，安装 Python 依赖。</li><li>复制 `.env.example` 为 `.env`，填 API Key、WebSocket 与主人 QQ。</li><li>配置 `GROUP_MODE`，带 `--webui` 启动中继。</li></ol><pre class="code"><span class="comment"># clone & install</span>
+<span class="cmd">git</span> clone <span class="arg">https://github.com/Soenchin/QQ-relay-Chatbot.git</span>
+<span class="cmd">cd</span> QQ-relay-Chatbot
+<span class="cmd">pip</span> install -r requirements.txt
+
+<span class="comment"># Windows: copy and edit configuration</span>
+<span class="cmd">copy</span> .env.example .env
+
+<span class="comment"># start relay + WebUI</span>
+<span class="cmd">py</span> -3.13 -u relay.py --webui</pre></div>
+      </section>
+    </main>
+
+    <footer><div class="foot"><div><strong>QQ Relay Chatbot</strong><span>OneBot v11 · Dual-mode group AI relay</span></div><div class="foot-links"><a href="https://github.com/Soenchin/QQ-relay-Chatbot">GitHub ↗</a><a href="https://github.com/SnowLuma/SnowLuma">SnowLuma ↗</a><a href="https://github.com/NapNeko/NapCatQQ">NapCatQQ ↗</a></div></div></footer>
   </div>
-</section>
-
-<!-- ===== FOOTER ===== -->
-<section id="footer">
-  <div class="container">
-    <h2>Talk to your bot.</h2>
-    <p style="color:#555; font-size:14px; margin-bottom: 12px;">Soenchin / QQ-relay-Chatbot</p>
-    <div class="links">
-      <a href="https://github.com/Soenchin/QQ-relay-Chatbot">GitHub</a>
-      <a href="#quickstart">快速开始</a>
-      <a href="https://github.com/SnowLuma/SnowLuma">SnowLuma</a>
-      <a href="https://github.com/NapNeko/NapCatQQ">NapCatQQ</a>
-    </div>
-    <p class="copy">AGPL-3.0 · Copyright (C) 2026 Soenchin</p>
-  </div>
-</section>
-
-<script>
-// === SCROLL REVEAL ===
-(function() {
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
-  }, { threshold: 0.1 });
-  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
-})();
-</script>
-
+  <script>
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); }), { threshold: .12 });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  </script>
 </body>
 </html>
