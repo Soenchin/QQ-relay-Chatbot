@@ -1,319 +1,387 @@
 # QQ-relay-Chatbot
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-%3E%3D0.100-009688?logo=fastapi&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-WebUI-009688?logo=fastapi&logoColor=white)
+![OneBot v11](https://img.shields.io/badge/Protocol-OneBot%20v11-5865F2)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-red)
 
-交流群 QQ 940358918
+基于 **OneBot v11 WebSocket** 的 QQ 群聊中继机器人。它把群消息分流到两条不同的 AI 路径：需要稳定、可控问答的群走直调 API；需要持续聊天上下文和主动接话的群走管道模式。
 
-基于 OneBot v11 WebSocket 的 QQ 群聊机器人，支持双模 AI 分流（直调/管道）、骰子、主动发言、表情包、插件系统和 Web 管理面板。兼容 **SnowLuma** 和 **NapCatQQ**。
+支持 SnowLuma 与 NapCatQQ；带纯前端 WebUI、分群插件开关、管道读图、链接摘要、骰子和表情包图床。
 
-> SnowLuma: https://github.com/SnowLuma/SnowLuma
-> NapCatQQ: https://github.com/NapNeko/NapCatQQ
-
-## 目录
-
-1. [项目概述](#1-项目概述)
-2. [架构总览](#2-架构总览)
-3. [快速开始](#3-快速开始)
-4. [核心功能](#4-核心功能)
-5. [插件系统](#5-插件系统)
-6. [WebUI 管理面板](#6-webui-管理面板)
-7. [管理命令](#7-管理命令)
-8. [分流设计](#8-分流设计)
-9. [常见问题](#9-常见问题)
+> 交流群：QQ 940358918
+>
+> OneBot 实现： [SnowLuma](https://github.com/SnowLuma/SnowLuma) / [NapCatQQ](https://github.com/NapNeko/NapCatQQ)
 
 ---
 
-## 1. 项目概述
+## 这东西能干嘛
 
-### 核心能力
-
-- **双模分流**：不同群走不同 AI 后端（直调 API / 管道子进程）
-- **主动发言**：管道群 4~8 条消息随机触发，自然插话
-- **骰子**：`.r d20` / `.r 3d6` 等跑团骰子，本地秒回
-- **表情包**：管道模式 50% 概率自动带图，支持归档打标
-- **插件系统**：可扩展的消息拦截/处理，分群开关，WebUI 管理
-- **WebUI**：仪表盘、群设置、知识库、插件管理、手动发消息、实时日志
-- **轻量化**：Python + WebSocket，无复杂依赖
-
-### 技术栈
-
-| 层 | 技术 |
-|----|------|
-| QQ 协议 | SnowLuma / NapCatQQ（OneBot v11 WebSocket） |
-| 中继 | Python 3 + asyncio + websockets |
-| AI 后端 | Claude Code CLI 代理到 DeepSeek API |
-| WebUI | FastAPI + 纯 JS SPA |
-| 插件 | Python 注册制，持久化 JSON 配置 |
+- **双群模式**：`direct` 直调 API，`pipe` 管道会话；每个群独立配置
+- **主动发言**：管道群积累 4–8 条普通消息后随机接话，滑动窗口保留最近 30 条上下文
+- **管道读图**：按群开启；图片落入临时 inbox，压缩后由多模态 API 生成短描述，再作为文字上下文提供给管道
+- **链接摘要**：自动识别 Bilibili、GitHub 和通用网页链接；过滤 CQ 图片链接，带限流与失败兜底
+- **插件系统**：消息 / 通知 / 请求三类插件，支持全局与分群开关，配置持久化
+- **WebUI**：仪表盘、现代化群设置、管道状态、知识库、人设、插件、手动发消息、日志
+- **本地功能**：骰子、表情包归档、OneBot 戳一戳回戳、加群申请提醒、新人欢迎
+- **发图保底**：发送前剥离本地图床中不存在或越界的 CQ 图片段，文字不会因一张失效图被整条吞掉
 
 ---
 
-## 2. 架构总览
+## 消息怎么走
 
-```
-QQ 群消息 --> SnowLuma / NapCatQQ (WebSocket) --> relay.py (过滤 + 分流)
-  |
-  ├── 骰子 .r --> 本地秒回
-  |
-  ├── mode=pipe（聊天群）:
-  │   ├── 插件钩子（拦截优先）
-  │   ├── @触发 --> 带上下文 prompt --> claude 子进程（--resume/--session-id）
-  │   ├── 主动发言（4~8 条触发）--> 同上
-  │   └── 50% 概率附带表情包指令
-  |
-  ├── mode=direct（跑团群 / fallback）:
-  │   ├── !管理命令 --> 本地处理
-  │   ├── 插件钩子（拦截优先）
-  │   └── @触发 --> HTTP 直调 DeepSeek API
-  |
-  └── WebUI（8800 端口）:
-      ├── REST API（群管理/知识库/人设/插件）
-      ├── WebSocket 实时推送
-      └── 图床服务器（8801 端口，供容器内读取表情包）
+```text
+QQ 群消息
+  │
+  └─ OneBot v11（SnowLuma / NapCatQQ WebSocket）
+       │
+       └─ relay.py
+            │
+            ├─ .r d20 / .r 3d6  → 本地骰子，立即回复
+            │
+            ├─ pipe 群
+            │    ├─ 可选：图片下载 → 压缩 → 多模态短描述 → inbox / 滑动窗口
+            │    ├─ 插件（如链接摘要）
+            │    ├─ @ 机器人 → Claude Code CLI 管道会话
+            │    └─ 普通聊天累计到阈值 → 主动接话
+            │
+            └─ direct 群
+                 ├─ ! 管理命令（仅主人）
+                 ├─ 插件
+                 └─ @ 机器人 → Anthropic 兼容 HTTP API
 ```
 
+管道群与直调群不是“高低配”，而是不同场景的两套动作系统：
+
+| | `direct` 直调 | `pipe` 管道 |
+|---|---|---|
+| 适合 | 跑团、问答、只想被 @ 时回答的群 | 日常聊天、希望机器人有上下文与存在感的群 |
+| AI 调用 | 直接请求 Anthropic 兼容 API | 启动 Claude Code CLI 子进程并续接会话 |
+| 上下文 | `memory/conv/<群号>.json`，最多 50 条 | 最近 30 条群消息 + CLI 会话 |
+| 主动发言 | 不会 | 4–8 条普通消息随机触发 |
+| 图片理解 | 不参与 | 可按群开启，先转成短文字描述再接话 |
+| 管理命令 | 主人可用 | 忽略 `!` 命令 |
+| 工具权限 | 纯 API 回复 | 默认只读；主人 @ 时才额外开放写工具 |
+
 ---
 
-## 3. 快速开始
+## 快速开始
 
-### 前置依赖
+### 1. 准备环境
 
-| 组件 | 说明 |
-|------|------|
-| 闲置 QQ 号 | 机器人本体 |
-| Python 3.10+ | relay.py + webui.py |
-| Node.js（含 npm） | Claude Code CLI |
-| SnowLuma / NapCatQQ | OneBot v11 协议实现 |
-| Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
+| 组件 | 用途 |
+|---|---|
+| Python 3.10+ | 中继、WebUI、插件 |
+| 一个可登录的 QQ 号 | 机器人账号 |
+| SnowLuma 或 NapCatQQ | 提供 OneBot v11 WebSocket |
+| Node.js + Claude Code CLI | 仅 `pipe` 模式需要 |
+| Anthropic 兼容 API | 直调回复，以及开启读图后的图片描述 |
+
+安装 Python 依赖：
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 配置
+`Pillow` 用于图片压缩。没有它时机器人仍会运行，但读图图片无法做尺寸/体积压缩。
 
-复制 `.env.example` 为 `.env`，填写 `DEEPSEEK_API_KEY`、`NAPCAT_WS_URL`、`MASTER_QQ` 等变量。`.env.example` 中有完整注释。
+如果要使用管道模式，安装 Claude Code CLI：
 
-### 启动
-
-1. 确保 SnowLuma / NapCatQQ 已启动，WebSocket 在 `ws://127.0.0.1:3001` 运行
-2. 双击 `启动中繼.bat`（或命令行 `py -3.13 -u relay.py --webui`）
-
-正常启动日志：
-
+```bash
+npm install -g @anthropic-ai/claude-code
 ```
-[中繼] 初始化完成（persona: persona.md）
-[中繼] 已加载 N 个插件: [...]
-[中繼] 管道群: [10000002, 10000003], 其他群走 direct
-[中繼] 主动发言阈值: {10000002: 6, 10000003: 5}
+
+### 2. 配置 OneBot
+
+启动 SnowLuma 或 NapCatQQ，并启用 OneBot v11 反向 WebSocket / WebSocket 服务端。默认中继会连接：
+
+```text
+ws://127.0.0.1:3001
+```
+
+地址和 Token 都能在 `.env` 中修改。
+
+### 3. 写 `.env`
+
+复制示例文件：
+
+```bash
+copy .env.example .env
+```
+
+至少填写：
+
+```dotenv
+DEEPSEEK_API_KEY=你的_API_Key
+NAPCAT_WS_URL=ws://127.0.0.1:3001
+NAPCAT_TOKEN=你的_OneBot_Token
+MASTER_QQ=你的QQ号
+BOT_NAME=QQ Bot
+```
+
+然后按需要配置群模式，例如：
+
+```dotenv
+GROUP_MODE={"123456789":"pipe","987654321":"direct"}
+FALLBACK_MODE=direct
+```
+
+### 4. 启动
+
+Windows 下直接双击：
+
+```text
+启动中繼.bat
+```
+
+或命令行启动：
+
+```bash
+py -3.13 -u relay.py --webui
+```
+
+看到类似日志就说明接通了：
+
+```text
 [中繼] 已登录 QQ: 12345678
+[中繼] 管道群: [123456789], 其他群走 direct
+[中繼] 读图群: （无，默认关）
 [中繼] WebUI 启动于 http://127.0.0.1:8800
-[图床] http://0.0.0.0:8801
 [中繼] 开始监听...
 ```
 
 ---
 
-## 4. 核心功能
+## 配置参考
 
-### 4.1 双模分流
+完整注释见 [`.env.example`](.env.example)。下面是最常用的部分。
 
-| 模式 | 场景 | 调用方式 | 上下文 | 工具能力 |
-|------|------|---------|--------|---------|
-| **pipe** | 聊天群 | spawn 子进程（`--resume`/`--session-id`） | 进程内持久 | 只读：WebSearch, Read, Glob（主人 @ 时放开写权限） |
-| **direct** | 跑团群 | HTTP POST DeepSeek API | conv/ 文件，最多 50 条 | 纯文本问答 |
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | 无 | API Key；直调和图片描述都需要 |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/anthropic` | Anthropic 兼容 API 基地址 |
+| `NAPCAT_WS_URL` | `ws://127.0.0.1:3001` | OneBot WebSocket 地址 |
+| `NAPCAT_TOKEN` | 空 | OneBot 鉴权 Token |
+| `BOT_NAME` | `QQ Bot` | 日志、WebUI、回复中的机器人名称 |
+| `MASTER_QQ` | `0` | 主人 QQ；用于管理命令和 pipe 写权限 |
+| `GROUP_MODE` | 空对象 | JSON 对象：群号 → `direct` / `pipe` |
+| `FALLBACK_MODE` | `direct` | 未单独配置的群使用的模式 |
+| `GROUP_VISION` | 空 | JSON 数组：开启管道读图的群号 |
+| `CLAUDE_CMD` | `claude` | Claude Code 命令或 Windows 下的 `claude.cmd` 路径 |
+| `MEM_DIR` | `./memory` | 记忆、知识库、插件配置、表情包目录 |
+| `MEME_SERVER_PORT` | `8801` | 本地表情包 HTTP 图床端口 |
+| `WEBUI_HOST` | `127.0.0.1` | WebUI 监听地址 |
+| `WEBUI_PORT` | `8800` | WebUI 端口 |
 
-### 4.2 骰子（所有群通用）
+### 群设置与读图
 
-| 输入 | 效果 | 示例输出 |
-|------|------|---------|
-| `.r d20` | 投 1 个 20 面骰 | D20 -> **15** |
-| `.r 3d6` | 投 3 个 6 面骰求和 | 3D6 -> 2 + 5 + 3 = **10** |
-| `.r 100` | 投 1 个 100 面骰 | D100 -> **73** |
+`GROUP_VISION` 只对 `pipe` 群有意义。例如：
 
-### 4.3 主动发言（仅管道群）
-
-- 每收到一条非 @ 消息，计数器 +1
-- 阈值范围 **4~8 条**，触发后随机重置
-- 滑动窗口保留最近 30 条消息作为上下文
-- 触发 prompt 要求自然接话、不要太正式
-
-### 4.4 表情包系统（仅管道群）
-
-- 每次 AI 回复有 **50%** 概率附带表情包指令
-- AI 从 `memory/memes/archive/index.md` 索引中选图
-- 回复末尾自然嵌入 CQ 码图片
-- 表情包管理通过 `!打标` / `!标` 命令（direct 群可用）
-
-### 4.5 管道模式：主人权限提升
-
-- 管道群中，主人（MASTER_QQ）@ 机器人时，工具权限从 `WebSearch,Read,Glob` 提升到 `WebSearch,Read,Edit,Write,Bash,Grep,Glob`
-- 其他人的 @ 和主动发言仍保持只读权限
-
----
-
-## 5. 插件系统
-
-在 `plugins.py` 中注册异步处理函数，支持分群开关，配置持久化到 `memory/plugins.json`。
-
-### 注册插件
-
-```python
-import plugins
-
-async def my_plugin(bot, gid, uid, nick, text, is_at):
-    """返回 True = 拦截本条消息（AI 不再回复），返回 None/False = 放行"""
-    if "你好" in text:
-        await bot.send_group(gid, f"{nick} 你好！")
-        return True
-    return None
-
-plugins.register("my_plugin", "回复'你好'", my_plugin, default_enabled=True)
+```dotenv
+GROUP_MODE={"123456789":"pipe"}
+GROUP_VISION=[123456789]
 ```
 
-### 钩子时机
+读图流程不是把原图直接塞给管道 CLI：
 
-- pipe 群：在窗口更新和计数累加之后、AI 回复之前（插件拦截 = 不计数）
-- direct 群：在 @ 消息处理之前（包括非 @ 消息也走钩子）
+1. OneBot 图片优先从 CQ URL 下载，失败时尝试 `get_image`。
+2. 图片写到 `memory/inbox/<群号>/`；GIF 取首帧，大图压缩到约 1.5 MB 以内。
+3. 多模态 API 生成不超过 80 字的客观短描述。
+4. 描述写入群聊滑动窗口，管道只读取文字上下文。
+5. 每群最多保留 5 张，超过 30 分钟或消息出窗口后自动清理。
 
-### WebUI 管理
+在 WebUI 的 **群设置** 页勾选“读图”也可以写入 `GROUP_VISION`；读图开关会尽量热更新，群模式变更仍建议重启 relay。
 
-插件管理页面可查看所有插件、全局开关、各群独立开关。无需重启即可生效。
-
----
-
-## 6. WebUI 管理面板
-
-默认地址：`http://127.0.0.1:8800`
-
-| 页面 | 功能 |
-|------|------|
-| **仪表盘** | 连接状态、在线时长、实时消息流、快捷统计 |
-| **群设置** | 查看/切换群模式（pipe/direct）、调整主动发言阈值、查看对话历史 |
-| **管道状态** | 各管道群的计数器、阈值、滑动窗口内容实时查看 |
-| **知识库** | 创建/编辑/删除 Markdown 知识文件 |
-| **插件管理** | 查看所有插件、全局开关、分群开关 |
-| **发消息** | 手动向任意群发送消息 |
-| **环境配置** | 在线编辑 GROUP_MODE / FALLBACK_MODE（需重启生效） |
-
-WebUI 通过 `/ws` WebSocket 接收实时事件（消息到达、AI 回复、管道触发）。
-
-**默认绑定 127.0.0.1，仅本机可访问。不要暴露到公网。**
+> 读图依赖你的 API / 模型本身支持图像输入。不支持时会记录失败日志并按普通文本继续，不会卡住整个群消息流程。
 
 ---
 
-## 7. 管理命令
+## WebUI
 
-仅 direct 模式群 + 主人（MASTER_QQ）可用：
+启动时带 `--webui`，或设置：
 
-| 命令 | 效果 |
-|------|------|
-| `!帮助` | 显示所有命令 |
-| `!清空记忆` | 清空本群对话历史 |
-| `!重载` | 重读 persona.md + 知识库 + 记忆文件 |
-| `!人设 xxx` | 修改人设内容并立即重载 |
-| `!知识` | 查看知识库文件列表 |
-| `!状态` | 查看本群对话统计（消息数/字符/tokens） |
+```dotenv
+WEBUI_ENABLED=true
+```
+
+默认地址：<http://127.0.0.1:8800>
+
+| 页面 | 能做什么 |
+|---|---|
+| 仪表盘 | 连接状态、运行时长、实时消息流、基础统计 |
+| 群设置 | 分群 `direct` / `pipe`、读图开关、`.env` 配置预览与保存 |
+| 管道状态 | 查看管道群的计数器、触发阈值和最近上下文 |
+| 知识库 | 新建、编辑、删除 Markdown 知识文件 |
+| 人设 | 编辑并重载 `persona.md` |
+| 插件管理 | 全局开关、每群开关、热重载插件注册表 |
+| 发消息 | 手动往指定群发送消息 |
+| 日志 | 查看进程内最近日志 |
+
+WebUI 默认只监听 `127.0.0.1`。**不要在没有鉴权和反向代理保护的情况下把它暴露到公网。**
+
+---
+
+## 插件系统
+
+插件配置在 `memory/plugins.json`，支持三种事件：
+
+| 注册函数 | 触发时机 | 内置例子 |
+|---|---|---|
+| `register()` | 群消息 | `link_summary` |
+| `register_notice()` | OneBot notice | 戳一戳回戳、入群欢迎 |
+| `register_request()` | OneBot request | 加群申请提醒 |
+
+消息插件签名：
+
+```python
+async def my_plugin(bot, gid, uid, nick, text, is_at):
+    # 返回 True：拦截，后续 AI 不回复
+    # 返回 False / None：放行
+    if "关键词" in text:
+        await bot.send_group(gid, "收到")
+        return True
+    return False
+
+register("my_plugin", "关键词回复", my_plugin, default_enabled=True)
+```
+
+### 内置插件：链接摘要
+
+`link_summary` 默认开启。群里出现网页链接时会：
+
+- Bilibili：标题、UP 主、封面、播放/点赞/弹幕
+- GitHub：仓库简介、star/fork、语言、许可证等
+- 其他网页：读取 Open Graph / `<title>` / description
+- 忽略 CQ 图片、QQ 多媒体直链和纯图片链接
+- 摘要正文最多 100 字，但统计行会完整保留
+- 单群限流为每分钟 3 次；同一链接 5 分钟内去重
+
+插件不会因为拉取失败把机器人搞挂：失败只会发出“链接内容拉取失败”的提示。
+
+---
+
+## 群内功能
+
+### 骰子
+
+所有群都能用：
+
+| 输入 | 效果 |
+|---|---|
+| `.r d20` | 投一个 D20 |
+| `.r 3d6` | 投 3 个 D6 并求和 |
+| `.r 100` | 投一个 D100 |
+
+### 管理命令
+
+仅 **主人（`MASTER_QQ`）在 direct 群** 可用：
+
+| 命令 | 作用 |
+|---|---|
+| `!帮助` | 显示命令表 |
+| `!清空记忆` | 清空本群直调对话历史 |
+| `!重载` | 重读人设、知识库和记忆文件 |
+| `!人设 xxx` | 改写人设并重载 |
+| `!知识` | 列出知识库文件 |
+| `!状态` | 查看本群历史统计 |
 | `!打标` | 列出待分类表情包 |
-| `!标 <文件名> <标签>` | 归档表情包并打标签（如：`!标 001.jpg 草, 无奈, 猫`） |
+| `!标 <文件名> <标签>` | 归档表情包并添加标签 |
+
+### 表情包
+
+管道回复会以 50% 概率得到表情包提示。机器人会读取：
+
+```text
+memory/memes/archive/index.md
+```
+
+从索引里选择合适图片并通过本地图床发送。发送前会检查图片是否存在且位于允许目录内；图片失效时只剥掉图片 CQ 码，文字照常发送。
 
 ---
 
-## 8. 分流设计
+## 目录说明
 
-### 为什么分流？
+```text
+QQ-relay-Chatbot/
+├── relay.py             # OneBot 中继、分流、管道、读图、直调 API
+├── plugins.py           # 插件注册表和内置插件
+├── webui.py             # FastAPI API / WebSocket / 静态文件服务
+├── static/              # WebUI SPA
+├── memory/
+│   ├── persona.md       # 机器人设定（运行时创建）
+│   ├── knowledge/       # Markdown 知识库
+│   ├── conv/            # direct 群对话历史
+│   ├── inbox/           # pipe 读图临时文件（自动清理）
+│   ├── memes/           # 表情包索引与文件
+│   └── plugins.json     # 插件开关配置
+├── .env.example         # 配置样例
+└── requirements.txt
+```
 
-| 场景 | 需求 | 方案 |
-|------|------|------|
-| 跑团群 | 短时间高频 @，快速干净回答 | HTTP 直调，每次独立 |
-| 聊天群 | 日常闲聊，需要记忆上下文 + 主动插话 | 管道子进程，session 持久 |
-
-### 直调 vs 管道
-
-| 对比项 | direct（直调） | pipe（管道） |
-|--------|---------------|-------------|
-| 调用方式 | HTTP POST API | spawn claude 子进程 |
-| 上下文 | conv/ 文件，最多 50 条 | 进程内自动持久、自动压缩 |
-| 工具能力 | 纯文本 | WebSearch / Read / Glob（主人可写） |
-| 主动发言 | 不支持 | 4~8 条随机触发 |
-| 响应延迟 | 约 1-3 秒 | 约 3-5 秒（含进程启动） |
-| 管理命令 | !命令 可用 | 无响应 |
-| 表情包 | 不支持 | 50% 概率 |
-
-### 管道工作原理
-
-每条消息启动一个新子进程（`--bare -p`），通过 `--session-id` / `--resume` 保持会话持久。进程退出 = 回复结束，省去解析 ANSI / spinner / 工具调用的麻烦。
-
-### Session 隔离
-
-每个群生成固定 UUID（`uuid.uuid5`），同群每次 resume 到同一个会话，不同群完全隔离。
-
-### 安全设计
-
-| 威胁 | 防护 |
-|------|------|
-| 群友让机器人删文件 | 管道默认只给 WebSearch, Read, Glob |
-| 读到无关文件 | `--bare` 禁用 CLAUDE.md 发现 + `--add-dir` 收窄 |
-| 并行冲突 | 同群 asyncio.Lock 串行排队 |
-| 多进程串会话 | 固定 session UUID |
-
-### 去重
-
-FIFO 淘汰队列（set + deque），最近 500 条 message_id。WS 重连时避免重推消息导致重复处理。
-
-### 消息拆分
-
-短消息直接发送；超过 30 字按句尾（。！？）拆分，每段尽量 100 字以内，段间间隔 0.4 秒。
+`memory/`、`.workbuddy/`、`.zcode/` 都是本地运行/工具目录，默认不会进 git。
 
 ---
 
-## 9. 常见问题
+## 安全与排错
 
-### 启动问题
+### 管道权限
+
+普通群友触发管道时只开放：
+
+```text
+WebSearch, Read, Glob
+```
+
+只有 `MASTER_QQ` 在管道群 @ 机器人时，才会额外开放 `Edit`、`Write`、`Bash`、`Grep` 等工具。别把 `MASTER_QQ` 随便填成陌生人，也不要把 `PIPE_ADD_DIR` 指到不该让机器人读的目录。
+
+### 常见问题
 
 **`claude 命令未找到`**
-确认 Claude Code 已安装，Windows 下 `CLAUDE_CMD` 设为 `claude.cmd` 或完整路径。
 
-**`Not logged in · Please run /login`**
-管道子进程的环境变量未正确设置。检查 `DEEPSEEK_API_KEY` 和 `DEEPSEEK_BASE_URL`。
+确认已安装 Claude Code；Windows 常用配置：
 
-### 运行时问题
+```dotenv
+CLAUDE_CMD=claude.cmd
+```
 
-**机器人不响应 @**
-1. 检查启动日志中 `已登录 QQ` 是否正确
-2. 检查消息是否被去重（看终端日志）
-3. 确认 SnowLuma/NapCatQQ 在线
-4. 管道模式下检查进程是否卡死（看日志错误信息）
+如果命令没在 PATH 中，填绝对路径。
 
-**双响炮（一条消息回复两次）**
-1. 检查是否有多个 relay.py 进程在跑
-2. 检查去重是否正常
-3. 杀掉残留进程后重启
+**机器人收得到消息但不回复**
 
-**管道群 @ 没有上下文记忆**
-1. 首次 @ 用 `--session-id` 创建，后续用 `--resume` 续接
-2. 如果手动调过 claude 占用了 session ID 会导致冲突
-3. 代码有回退逻辑：resume 失败自动用 `--session-id` 重建
+1. 看终端是否显示“已登录 QQ”。
+2. 确认该群在 `GROUP_MODE` 中的模式，或检查 `FALLBACK_MODE`。
+3. `direct` 群只有 @ 机器人后才会调用 AI。
+4. `pipe` 群的主动发言要等随机阈值；@ 可以立即触发。
+5. 检查 API Key、OneBot WebSocket 地址与 Token。
 
-**Windows 下换行符丢失**
-消息通过 stdin 传入（不是命令行参数），新版已修复。
+**读图没有生效**
 
-### 注意事项
+1. 确认群是 `pipe`。
+2. 确认 `GROUP_VISION` 是 JSON 数组且包含该群号。
+3. 看日志里的 `[读图]`；直链失败会自动尝试 OneBot `get_image`。
+4. 确认 API 模型支持图片输入。
 
-- 修改 `persona.md` 后需通过 WebUI 重载或重启生效
-- `GROUP_MODE` 修改后需重启 relay.py
-- 插件配置即时生效，无需重启
+**消息带图时文字没发出去**
 
-### 已知问题
+新版会在发送前检查本地图床图片。仍有问题时，请检查 `MEME_SERVER_PORT` 是否被占用，以及 `memory/memes/` 文件是否存在。
 
-- 偶现回复附带引号（排查中）
-- 表情包触发时偶现 AI 对图本身进行评论说明（prompt 约束持续优化中）
+**重复回复（双响）**
+
+通常是多个 relay 进程同时连接 OneBot。关掉残留进程后只保留一个实例。
+
+---
+
+## 开发与贡献
+
+- 修改插件后，可在 WebUI 的插件管理页重载注册表。
+- 修改 `GROUP_MODE` 后建议重启 relay；读图开关会尽量热更新。
+- 改动前优先看 `.env.example` 和现有插件接口，别把真实 Key、QQ 号或本地绝对路径提交进仓库。
+- 欢迎 Issue / PR；请描述 OneBot 实现、Python 版本、相关日志和复现步骤。
 
 ---
 
 ## License
 
-AGPL-3.0. Copyright (C) 2026 Soenchin.
+[AGPL-3.0](LICENSE) · Copyright (C) 2026 Soenchin
 
-GitHub: https://github.com/Soenchin/QQ-relay-Chatbot
+项目地址：<https://github.com/Soenchin/QQ-relay-Chatbot>
