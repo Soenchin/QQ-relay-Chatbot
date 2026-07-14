@@ -307,89 +307,112 @@ function renderGroupConfig() {
     const groupMode = env.group_mode || {};
     const fallback = env.fallback_mode || 'direct';
     const visionSet = new Set((env.group_vision || []).map(x => String(x)));
+    const configuredCount = Object.keys(groupMode).length;
+    const visionCount = visionSet.size;
 
     const rows = Object.entries(groupMode).map(([gid, mode]) => `
         <tr data-gid="${gid}">
-            <td><input type="text" value="${gid}" class="group-id-input" readonly style="background:var(--bg-hover);color:var(--text-muted);cursor:not-allowed;" /></td>
+            <td><span class="group-id-chip">${gid}</span><input type="hidden" value="${gid}" class="group-id-input" /></td>
             <td>
-                <select class="group-mode-select">
-                    <option value="direct" ${mode === 'direct' ? 'selected' : ''}>直调 (direct)</option>
-                    <option value="pipe" ${mode === 'pipe' ? 'selected' : ''}>管道 (pipe)</option>
+                <select class="group-mode-select" aria-label="群 ${gid} 的模式">
+                    <option value="direct" ${mode === 'direct' ? 'selected' : ''}>直调 · 仅 @ 回复</option>
+                    <option value="pipe" ${mode === 'pipe' ? 'selected' : ''}>管道 · 可主动发言</option>
                 </select>
             </td>
-            <td style="text-align:center">
-                <input type="checkbox" class="group-vision-check" ${visionSet.has(String(gid)) ? 'checked' : ''} title="开启后下载群图供管道主动发言 Read" />
+            <td>
+                <label class="vision-toggle" title="开启后保存群图片，并把中继侧图像描述带入管道上下文">
+                    <input type="checkbox" class="group-vision-check" ${visionSet.has(String(gid)) ? 'checked' : ''} />
+                    <span class="vision-toggle-track" aria-hidden="true"></span>
+                    <span class="vision-toggle-text">读图</span>
+                </label>
             </td>
-            <td><button class="btn btn-danger btn-sm" onclick="removeGroupRow(this)">&#x1F5D1; 删除</button></td>
+            <td class="group-action-cell"><button class="btn btn-outline btn-sm group-delete-btn" onclick="removeGroupRow(this)">删除</button></td>
         </tr>
     `).join('');
 
     const groupTable = `
-        <table class="group-table">
-            <thead>
-                <tr>
-                    <th style="width:200px">群号</th>
-                    <th>模式</th>
-                    <th style="width:90px">读图</th>
-                    <th style="width:100px">操作</th>
-                </tr>
-            </thead>
-            <tbody id="group-config-tbody">
-                ${rows || '<tr class="empty-row"><td colspan="4">&#x1F4ED; 暂无配置，请添加群</td></tr>'}
-            </tbody>
-        </table>`;
+        <div class="group-table-wrap">
+            <table class="group-table">
+                <thead>
+                    <tr>
+                        <th>群号</th>
+                        <th>对话模式</th>
+                        <th>图片理解</th>
+                        <th aria-label="操作"></th>
+                    </tr>
+                </thead>
+                <tbody id="group-config-tbody">
+                    ${rows || '<tr class="empty-row"><td colspan="4"><strong>还没有单独配置的群</strong><span>在上面填入群号后添加；其他群会使用默认模式。</span></td></tr>'}
+                </tbody>
+            </table>
+        </div>`;
 
     $('#app-view').innerHTML = `
-        <div class="page-header">
-            <h2>&#x2699;&#xFE0F; 群设置</h2>
-            <p>管理每个群的模式（直调 / 管道）和读图开关。模式变更需重启；读图开关保存后会尽量热更新。</p>
-        </div>
-        <div class="group-config-panel">
-            <div class="panel-section">
-                <div id="group-config-alert" style="display:none"></div>
+        <section class="settings-hero">
+            <div>
+                <span class="settings-eyebrow">BOT CONFIGURATION</span>
+                <h2>群设置</h2>
+                <p>给每个群单独安排对话方式和读图能力。模式改动需要重启；读图开关保存后会尽量即时生效。</p>
             </div>
+            <div class="settings-stats" aria-label="群设置统计">
+                <div><strong>${configuredCount}</strong><span>已配置群</span></div>
+                <div><strong>${visionCount}</strong><span>开启读图</span></div>
+            </div>
+        </section>
 
-            <div class="panel-section">
-                <h3>&#x1F4E5; 默认模式（fallback）</h3>
-                <p class="text-muted text-sm mb-16">未在下方表格中指定的群，默认使用此模式。</p>
-                <div class="form-group" style="max-width:300px">
+        <div class="group-config-panel modern-group-config">
+            <div id="group-config-alert" style="display:none"></div>
+
+            <div class="settings-card fallback-card">
+                <div class="settings-card-heading">
+                    <div><span class="section-kicker">DEFAULT ROUTE</span><h3>默认对话模式</h3></div>
+                    <span class="mode-status">未单独配置的群</span>
+                </div>
+                <p>机器人遇到未列在下方的群时，会按这里的规则响应。</p>
+                <div class="fallback-control">
+                    <label for="fallback-mode-select">默认行为</label>
                     <select id="fallback-mode-select">
-                        <option value="direct" ${fallback === 'direct' ? 'selected' : ''}>直调 (direct) - 仅 @ 时回复</option>
-                        <option value="pipe" ${fallback === 'pipe' ? 'selected' : ''}>管道 (pipe) - 可主动发言</option>
+                        <option value="direct" ${fallback === 'direct' ? 'selected' : ''}>直调模式 · 只有 @ 机器人时回复</option>
+                        <option value="pipe" ${fallback === 'pipe' ? 'selected' : ''}>管道模式 · 会参考聊天上下文主动接话</option>
                     </select>
                 </div>
             </div>
 
-            <div class="panel-section">
-                <h3>&#x1F4CB; 群模式列表</h3>
-                <div class="add-group-row mb-20">
+            <div class="settings-card group-list-card">
+                <div class="settings-card-heading">
+                    <div><span class="section-kicker">GROUP OVERRIDES</span><h3>单独配置群</h3></div>
+                    <span class="mode-status">${configuredCount} 条规则</span>
+                </div>
+                <p>这里的规则优先于默认模式。读图只建议给管道群开，图会临时放入 inbox 并自动清理。</p>
+
+                <div class="add-group-row">
                     <div class="form-group">
-                        <label>群号</label>
-                        <input type="text" id="new-group-id" placeholder="123456789" />
+                        <label for="new-group-id">群号</label>
+                        <input type="text" id="new-group-id" inputmode="numeric" placeholder="例如 123456789" />
                     </div>
                     <div class="form-group">
-                        <label>模式</label>
+                        <label for="new-group-mode">模式</label>
                         <select id="new-group-mode">
-                            <option value="direct">直调 (direct)</option>
-                            <option value="pipe" selected>管道 (pipe)</option>
+                            <option value="direct">直调 · 仅 @ 回复</option>
+                            <option value="pipe" selected>管道 · 可主动发言</option>
                         </select>
                     </div>
-                    <button class="btn btn-success" id="btn-add-group">&#x2795; 添加</button>
+                    <button class="btn btn-success add-group-btn" id="btn-add-group">添加群</button>
                 </div>
                 ${groupTable}
             </div>
 
-            <div class="panel-section">
-                <h3>&#x1F4DD; 配置预览</h3>
-                <p class="text-muted text-sm mb-16">保存后写入 .env 文件的实际内容。</p>
+            <details class="settings-card config-preview-card">
+                <summary><span><span class="section-kicker">ENV PREVIEW</span><strong>查看将写入 .env 的配置</strong></span><span class="summary-hint">展开</span></summary>
                 <div class="json-preview" id="config-preview"></div>
-            </div>
+            </details>
 
-            <div class="panel-section mt-24">
-                <button class="btn btn-primary btn-lg" id="btn-save-group-config">
-                    &#x1F4BE; 保存到 .env
-                </button>
-                <span id="save-group-indicator" class="save-indicator" style="margin-left:16px">已保存</span>
+            <div class="settings-save-bar">
+                <div><strong>确认后保存</strong><span>模式切换需重启 relay；读图开关会尝试热更新。</span></div>
+                <div class="save-actions">
+                    <span id="save-group-indicator" class="save-indicator">已保存</span>
+                    <button class="btn btn-primary btn-lg" id="btn-save-group-config">保存群设置</button>
+                </div>
             </div>
         </div>`;
 
