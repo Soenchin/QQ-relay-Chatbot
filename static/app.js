@@ -25,7 +25,7 @@ const state = {
     knowledge: [],
     plugins: [],
     pluginGroups: [],
-    envConfig: { group_mode: {}, fallback_mode: 'direct', group_mode_raw: '' },
+    envConfig: { group_mode: {}, fallback_mode: 'direct', group_mode_raw: '', group_vision: [] },
     ws: null,
     wsReconnectTimer: null,
     wsReconnectDelay: 1000,
@@ -306,6 +306,7 @@ function renderGroupConfig() {
     const env = state.envConfig;
     const groupMode = env.group_mode || {};
     const fallback = env.fallback_mode || 'direct';
+    const visionSet = new Set((env.group_vision || []).map(x => String(x)));
 
     const rows = Object.entries(groupMode).map(([gid, mode]) => `
         <tr data-gid="${gid}">
@@ -315,6 +316,9 @@ function renderGroupConfig() {
                     <option value="direct" ${mode === 'direct' ? 'selected' : ''}>直调 (direct)</option>
                     <option value="pipe" ${mode === 'pipe' ? 'selected' : ''}>管道 (pipe)</option>
                 </select>
+            </td>
+            <td style="text-align:center">
+                <input type="checkbox" class="group-vision-check" ${visionSet.has(String(gid)) ? 'checked' : ''} title="开启后下载群图供管道主动发言 Read" />
             </td>
             <td><button class="btn btn-danger btn-sm" onclick="removeGroupRow(this)">&#x1F5D1; 删除</button></td>
         </tr>
@@ -326,18 +330,19 @@ function renderGroupConfig() {
                 <tr>
                     <th style="width:200px">群号</th>
                     <th>模式</th>
+                    <th style="width:90px">读图</th>
                     <th style="width:100px">操作</th>
                 </tr>
             </thead>
             <tbody id="group-config-tbody">
-                ${rows || '<tr class="empty-row"><td colspan="3">&#x1F4ED; 暂无配置，请添加群</td></tr>'}
+                ${rows || '<tr class="empty-row"><td colspan="4">&#x1F4ED; 暂无配置，请添加群</td></tr>'}
             </tbody>
         </table>`;
 
     $('#app-view').innerHTML = `
         <div class="page-header">
             <h2>&#x2699;&#xFE0F; 群设置</h2>
-            <p>管理每个群的模式（直调 / 管道）。保存后需重启 relay 才能生效。</p>
+            <p>管理每个群的模式（直调 / 管道）和读图开关。模式变更需重启；读图开关保存后会尽量热更新。</p>
         </div>
         <div class="group-config-panel">
             <div class="panel-section">
@@ -420,6 +425,7 @@ function attachGroupConfigEvents() {
     $('#btn-save-group-config')?.addEventListener('click', async () => {
         const groupMode = state.envConfig.group_mode;
         const fallback = $('#fallback-mode-select')?.value || 'direct';
+        const visionIds = [];
 
         // Collect from table (in case user edited modes in-place)
         const tbody = $('#group-config-tbody');
@@ -427,21 +433,27 @@ function attachGroupConfigEvents() {
             tbody.querySelectorAll('tr').forEach(tr => {
                 const gidInput = tr.querySelector('.group-id-input');
                 const modeSelect = tr.querySelector('.group-mode-select');
+                const visionCheck = tr.querySelector('.group-vision-check');
                 if (gidInput && modeSelect) {
                     const gid = parseInt(gidInput.value);
                     if (!isNaN(gid)) {
                         groupMode[gid] = modeSelect.value;
+                        if (visionCheck && visionCheck.checked) {
+                            visionIds.push(gid);
+                        }
                     }
                 }
             });
         }
 
+        state.envConfig.group_vision = visionIds;
         const groupModeJson = JSON.stringify(groupMode, null, 0);
+        const groupVisionJson = JSON.stringify(visionIds);
 
         try {
             const result = await api('/api/env-config', {
                 method: 'PUT',
-                body: JSON.stringify({ group_mode: groupModeJson, fallback_mode: fallback }),
+                body: JSON.stringify({ group_mode: groupModeJson, fallback_mode: fallback, group_vision: groupVisionJson }),
             });
 
             const indicator = $('#save-group-indicator');
@@ -465,6 +477,9 @@ function attachGroupConfigEvents() {
     document.querySelectorAll('.group-mode-select').forEach(el => {
         el.addEventListener('change', updateConfigPreview);
     });
+    document.querySelectorAll('.group-vision-check').forEach(el => {
+        el.addEventListener('change', updateConfigPreview);
+    });
 }
 
 function removeGroupRow(btn) {
@@ -482,13 +497,19 @@ function updateConfigPreview() {
     if (!preview) return;
 
     const groupMode = {};
+    const visionIds = [];
     const tbody = $('#group-config-tbody');
     if (tbody) {
         tbody.querySelectorAll('tr').forEach(tr => {
             const gidInput = tr.querySelector('.group-id-input');
             const modeSelect = tr.querySelector('.group-mode-select');
+            const visionCheck = tr.querySelector('.group-vision-check');
             if (gidInput && modeSelect) {
                 groupMode[gidInput.value] = modeSelect.value;
+                if (visionCheck && visionCheck.checked) {
+                    const gid = parseInt(gidInput.value);
+                    if (!isNaN(gid)) visionIds.push(gid);
+                }
             }
         });
     }
@@ -497,6 +518,7 @@ function updateConfigPreview() {
     const raw = {
         GROUP_MODE: JSON.stringify(groupMode),
         FALLBACK_MODE: fallback,
+        GROUP_VISION: JSON.stringify(visionIds),
     };
 
     preview.textContent = JSON.stringify(raw, null, 2);

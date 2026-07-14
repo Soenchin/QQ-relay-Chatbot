@@ -179,6 +179,7 @@ class PersonaUpdate(BaseModel):
 class EnvConfigUpdate(BaseModel):
     group_mode: str | None = None
     fallback_mode: str | None = None
+    group_vision: str | None = None  # JSON array string
 
 
 # ============ FastAPI App ============
@@ -213,10 +214,19 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
                 group_mode = {int(k): v for k, v in json.loads(group_mode_raw).items()}
             except Exception:
                 pass
+        group_vision_raw = env.get("GROUP_VISION", "")
+        group_vision = []
+        if group_vision_raw:
+            try:
+                group_vision = [int(x) for x in json.loads(group_vision_raw)]
+            except Exception:
+                group_vision = []
         return {
             "group_mode": group_mode,
             "fallback_mode": env.get("FALLBACK_MODE", "direct"),
             "group_mode_raw": group_mode_raw,
+            "group_vision": group_vision,
+            "group_vision_raw": group_vision_raw,
         }
 
     @app.put("/api/env-config")
@@ -239,11 +249,28 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
             if data.fallback_mode not in ("direct", "pipe"):
                 raise HTTPException(422, "fallback_mode must be 'direct' or 'pipe'")
             updates["FALLBACK_MODE"] = data.fallback_mode
+        if data.group_vision is not None:
+            try:
+                parsed_v = json.loads(data.group_vision)
+                if not isinstance(parsed_v, list):
+                    raise HTTPException(422, "group_vision must be a JSON array")
+                vision_ids = [int(x) for x in parsed_v]
+                updates["GROUP_VISION"] = json.dumps(vision_ids, ensure_ascii=False, separators=(",", ":"))
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(422, f"Invalid group_vision: {e}")
 
         if not updates:
             raise HTTPException(422, "No fields to update")
 
         write_env_file(updates)
+        bot = app.state.relay_bot
+        if bot is not None and "GROUP_VISION" in updates:
+            try:
+                bot.GROUP_VISION = {int(x) for x in json.loads(updates["GROUP_VISION"])}
+            except Exception:
+                pass
         return {"ok": True, "updated": list(updates.keys()), "restart_required": True}
 
     # ============ Dashboard ============

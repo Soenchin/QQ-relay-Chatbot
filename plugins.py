@@ -344,3 +344,407 @@ async def group_welcome(bot, data: dict):
 register_notice("poke_reply", "被戳回戳（10秒冷却）", poke_reply, default_enabled=True)
 register_request("join_request_notify", "加群申请通知", join_request_notify, default_enabled=True)
 register_notice("group_welcome", "入群欢迎", group_welcome, default_enabled=True)
+
+# ==============================================================================
+# 链接摘要插件：B站 / GitHub / 通用网页（原 link_summary_plugin.py，并入 plugins）
+# ==============================================================================
+
+import re
+from urllib.parse import urlparse
+
+import httpx
+
+# ============================================================
+#  通用工具
+# ============================================================
+
+UA = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    )
+}
+
+
+def strip_cq_segments(text: str) -> str:
+    """去掉 CQ 段，避免把 CQ:image 的 url= 当成网页链接。"""
+    return re.sub(r"\[CQ:[^\]]*\]", " ", text or "")
+
+
+def extract_urls(text: str) -> list[str]:
+    """从文本中提取网页 URL（忽略图片/表情等 CQ 内嵌链）。"""
+    clean = strip_cq_segments(text)
+    urls = re.findall(r"https?://[^\s,，。、<>\"']+", clean)
+    # 再挡一层：QQ 多媒体直链 / 常见图床直链不算“网页摘要”
+    blocked = (
+        "multimedia.nt.qq.com.cn",
+        "gchat.qpic.cn",
+        "c2cpicdw.qpic.cn",
+        "thirdqq.qlogo.cn",
+        "qpic.cn/",
+    )
+    out = []
+    for u in urls:
+        low = u.lower()
+        if any(b in low for b in blocked):
+            continue
+        # 纯图片后缀也跳过
+        if re.search(r"\.(jpg|jpeg|png|gif|webp|bmp)(?:\?|$)", low):
+            continue
+        out.append(u.rstrip(")]}>'\",.;"))
+    return out
+
+
+SUMMARY_MAX_CHARS = 100
+
+# 统计行必须完整保留，并始终放在摘要最后一行
+_STATS_LINE_RE = re.compile(
+    r"(?:^播放\s|^\s*播放\s)|(?:\bstar\b.*\bfork\b)|(?:点赞)|(?:弹幕)",
+    re.IGNORECASE,
+)
+
+
+def _is_stats_line(line: str) -> bool:
+    s = (line or "").strip()
+    if not s or s.startswith("[CQ:"):
+        return False
+    if s.startswith("播放 ") or " | 点赞 " in s or " | 弹幕 " in s:
+        return True
+    if s.startswith("star ") or " · " in s and ("star " in s or "fork " in s):
+        return True
+    # GitHub meta: star x · fork y · ...
+    if re.search(r"\bstar\b", s, re.I) and re.search(r"\bfork\b", s, re.I):
+        return True
+    return False
+
+
+def truncate_summary(text: str, limit: int = SUMMARY_MAX_CHARS) -> str:
+    """整条摘要总长限制。
+
+    - CQ:image 行保留
+    - 统计行（播放/点赞/弹幕 或 star/fork）始终完整，并放在最后新起一行
+    - 其余文字超过 limit 截断加 ...
+    """
+    if not text:
+        return text
+    lines = text.split("\n")
+    cq_lines = []
+    stats_lines = []
+    body_lines = []
+    for line in lines:
+        if line.startswith("[CQ:image,"):
+            cq_lines.append(line)
+        elif _is_stats_line(line):
+            stats_lines.append(line.strip())
+        else:
+            body_lines.append(line)
+    body = "\n".join(body_lines).strip()
+    if len(body) > limit:
+        body = body[:limit].rstrip() + "..."
+    parts = []
+    parts.extend(cq_lines)
+    if body:
+        parts.append(body)
+    # 统计数据无论如何接上，最后新起一行
+    if stats_lines:
+        # 通常只有一行；多行也逐行放最后
+        parts.extend(stats_lines)
+    return "\n".join(parts)
+
+
+async def fetch_json(client: httpx.AsyncClient, url: str, headers: dict | None = None) -> dict | None:
+    """安全的 GET → JSON，失败返回 None"""
+    try:
+        resp = await client.get(url, headers={**UA, **(headers or {})}, timeout=15.0, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        print(f"[链接摘要] 请求失败: {url} — {e}")
+        return None
+
+
+# ============================================================
+#  B站
+# ============================================================
+
+BV_RE = re.compile(r"[Bb][Vv][0-9A-Za-z]{10,12}")
+
+
+def extract_bvid(url: str) -> str | None:
+    m = BV_RE.search(url or "")
+    if m:
+        return m.group()
+    path = urlparse(url or "").path
+    if "/video/" in path:
+        seg = path.split("/video/")[-1].split("/")[0].split("?")[0]
+        if BV_RE.match(seg):
+            return seg
+    return None
+
+
+def fmt_bilibili(data: dict) -> str | None:
+    d = data.get("data")
+    if not d:
+        return None
+
+    title = (d.get("title") or "").strip()
+    desc = (d.get("desc") or d.get("dynamic") or "").strip()
+    stat = d.get("stat") or {}
+    owner = d.get("owner") or {}
+    pic = d.get("pic") or ""
+
+    view = stat.get("view", 0)
+    like = stat.get("like", 0)
+    danmaku = stat.get("danmaku", 0)
+    uname = owner.get("name", "")
+
+    if len(desc) > 120:
+        desc = desc[:120] + "…"
+
+    def fmt_num(n: int) -> str:
+        try:
+            n = int(n)
+        except Exception:
+            return str(n)
+        if n >= 10000:
+            return f"{n / 10000:.1f}万"
+        return str(n)
+
+    lines = []
+    if pic:
+        lines.append(f"[CQ:image,file={pic}]")
+    lines.append(f"【{uname}】{title}" if uname else title or "B站视频")
+    if desc:
+        lines.append(desc)
+    lines.append(f"播放 {fmt_num(view)} | 点赞 {fmt_num(like)} | 弹幕 {fmt_num(danmaku)}")
+    return "\n".join(lines)
+
+
+async def handle_bilibili(url: str, client: httpx.AsyncClient) -> str | None:
+    bvid = extract_bvid(url)
+
+    if not bvid and "b23.tv" in (url or ""):
+        try:
+            resp = await client.get(url, headers=UA, follow_redirects=True, timeout=10.0)
+            bvid = extract_bvid(str(resp.url))
+        except Exception as e:
+            print(f"[链接摘要] b23.tv 展开失败: {e}")
+
+    if not bvid:
+        return None
+
+    api_url = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
+    data = await fetch_json(client, api_url)
+    if not data:
+        return None
+    return fmt_bilibili(data)
+
+
+# ============================================================
+#  GitHub
+# ============================================================
+
+GH_RE = re.compile(r"github\.com[/:]([^/\s]+)/([^/\s#?]+)")
+
+
+def extract_gh(url: str) -> tuple[str, str] | None:
+    m = GH_RE.search(url or "")
+    if not m:
+        return None
+    owner = m.group(1).strip()
+    repo = m.group(2).strip().replace(".git", "")
+    return owner, repo
+
+
+def fmt_github(data: dict, owner: str, repo: str) -> str | None:
+    full_name = data.get("full_name", f"{owner}/{repo}")
+    desc = (data.get("description") or "").strip()
+    lang = data.get("language") or ""
+    stars = data.get("stargazers_count", 0)
+    forks = data.get("forks_count", 0)
+    issues = data.get("open_issues_count", 0)
+    license_info = data.get("license")
+    topics = data.get("topics") or []
+    avatar = (data.get("owner") or {}).get("avatar_url", "")
+
+    def fmt_num(n: int) -> str:
+        try:
+            n = int(n)
+        except Exception:
+            return str(n)
+        if n >= 1000:
+            return f"{n / 1000:.1f}k"
+        return str(n)
+
+    lines = []
+    if avatar:
+        lines.append(f"[CQ:image,file={avatar}]")
+    lines.append(f"GitHub {full_name}")
+    if desc:
+        if len(desc) > 150:
+            desc = desc[:150] + "…"
+        lines.append(desc)
+
+    meta = [f"star {fmt_num(stars)}", f"fork {fmt_num(forks)}"]
+    if lang:
+        meta.append(lang)
+    if license_info and license_info.get("spdx_id") and license_info["spdx_id"] != "NOASSERTION":
+        meta.append(license_info["spdx_id"])
+    if issues:
+        meta.append(f"issues {fmt_num(issues)}")
+    lines.append(" · ".join(meta))
+
+    if topics:
+        lines.append(" ".join(f"#{t}" for t in topics[:5]))
+    return "\n".join(lines)
+
+
+async def handle_github(url: str, client: httpx.AsyncClient) -> str | None:
+    parsed = extract_gh(url)
+    if not parsed:
+        return None
+    owner, repo = parsed
+    api_url = f"https://api.github.com/repos/{owner}/{repo}"
+    data = await fetch_json(client, api_url, headers={"Accept": "application/vnd.github+json"})
+    if not data:
+        return None
+    return fmt_github(data, owner, repo)
+
+
+# ============================================================
+#  通用 OG 兜底
+# ============================================================
+
+def _meta_content(html: str, prop: str) -> str:
+    # property/name 在 content 前或后都尽量匹配
+    patterns = [
+        rf'<meta\s+[^>]*(?:property|name)=["\']{re.escape(prop)}["\'][^>]*content=["\']([^"\']+)["\']',
+        rf'<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*(?:property|name)=["\']{re.escape(prop)}["\']',
+    ]
+    for pat in patterns:
+        m = re.search(pat, html, re.I)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+async def handle_generic(url: str, client: httpx.AsyncClient) -> str | None:
+    try:
+        resp = await client.get(url, headers=UA, timeout=15.0, follow_redirects=True)
+        resp.raise_for_status()
+        html = resp.text
+    except Exception as e:
+        print(f"[链接摘要] 通用抓取失败: {url} — {e}")
+        return None
+
+    title = _meta_content(html, "og:title")
+    if not title:
+        m = re.search(r"<title>([^<]+)</title>", html, re.I)
+        if m:
+            title = m.group(1).strip()
+
+    desc = _meta_content(html, "og:description")
+    if not desc:
+        desc = _meta_content(html, "description")
+    image = _meta_content(html, "og:image")
+
+    if not title and not desc:
+        return None
+
+    title = (title or url).strip()[:100]
+    desc = (desc or "").strip()
+    if len(desc) > 150:
+        desc = desc[:150] + "…"
+
+    lines = []
+    if image:
+        lines.append(f"[CQ:image,file={image}]")
+    lines.append(f"链接 {title}")
+    if desc:
+        lines.append(desc)
+    lines.append(urlparse(url).netloc)
+    return "\n".join(lines)
+
+
+# ============================================================
+#  去重 / 限流
+# ============================================================
+
+_seen_links: dict[str, float] = {}
+_SEEN_TTL = 300  # 5 分钟
+
+_group_rates: dict[int, list[float]] = {}
+_RATE_LIMIT = 3
+_RATE_WIN = 60
+
+
+def _check_rate(gid: int) -> bool:
+    now = _time.time()
+    bucket = _group_rates.setdefault(gid, [])
+    _group_rates[gid] = [t for t in bucket if now - t < _RATE_WIN]
+    if len(_group_rates[gid]) >= _RATE_LIMIT:
+        return False
+    _group_rates[gid].append(now)
+    return True
+
+
+async def link_summary_handler(bot, gid: int, uid: int, nick: str, text: str, is_at: bool) -> bool:
+    """
+    返回 True = 截胡 AI；False = AI 可继续。
+    有链接时尽量发摘要；拉不到就发（链接内容拉取失败）。
+    """
+    urls = extract_urls(text)
+    if not urls:
+        return False
+
+    url = urls[0]
+    now = _time.time()
+    link_key = f"{gid}:{url}"
+    if link_key in _seen_links and now - _seen_links[link_key] < _SEEN_TTL:
+        return False
+    _seen_links[link_key] = now
+
+    if not _check_rate(gid):
+        print(f"[链接摘要] 群 {gid} 频率超限，跳过")
+        return False
+
+    print(f"[链接摘要] 群 {gid} | {nick}({uid}) | {url}")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=UA) as client:
+            reply = None
+            if "bilibili.com" in url or "b23.tv" in url:
+                reply = await handle_bilibili(url, client)
+            elif "github.com" in url:
+                reply = await handle_github(url, client)
+            else:
+                reply = await handle_generic(url, client)
+
+            if not reply:
+                await bot.send_group(gid, "（链接内容拉取失败）")
+                print(f"[链接摘要] 拉取失败: {url}")
+                return False
+
+            reply = truncate_summary(reply)
+            await bot.send_group(gid, reply)
+            print(f"[链接摘要] 已发送: {url} ({len(reply)} chars)")
+            return False
+    except Exception as e:
+        print(f"[链接摘要] 异常: {e}")
+        try:
+            await bot.send_group(gid, "（链接内容拉取失败）")
+        except Exception as e2:
+            print(f"[链接摘要] 失败提示也没发出去: {e2}")
+        return False
+
+
+
+
+register(
+    "link_summary",
+    "链接自动摘要 — B站/GitHub/通用网页",
+    link_summary_handler,
+    default_enabled=True,
+)
+print("[插件] link_summary 已注册")
