@@ -219,6 +219,32 @@ WEBUI_ENABLED=true
 
 WebUI 默认只监听 `127.0.0.1`。**不要在没有鉴权和反向代理保护的情况下把它暴露到公网。**
 
+界面使用雾灰 / 鼠尾草绿浅色主题，支持窄屏导航与键盘操作。管道会话数量、消息积累和当前阈值采用滚轮数字；系统开启“减少动态效果”时直接更新数字。知识库删除按钮点击后展开确认 / 取消，支持 Escape 取消；等待接口成功才显示完成，失败保留内容并允许重试。未保存的新文件不显示删除按钮。
+
+### 独立 UI 预览与验证
+
+需要 Node.js 22+，无需安装前端依赖。在项目根目录运行：
+
+```bash
+node tools/preview.mjs
+```
+
+打开 <http://127.0.0.1:8812>。这是**模拟数据预览**：不启动 relay、不连接 QQ、不读取或写入真实知识库 / `.env`，所有修改只存在于预览进程内存中。按 Ctrl+C 停止；重新启动会重置数据。
+
+运行浏览器回归检查：
+
+```bash
+node tools/test-webui.mjs
+# 非默认 Windows Edge 路径时，传入本机 Chromium / Edge 可执行文件：
+node tools/test-webui.mjs "/path/to/chromium"
+```
+
+测试会启动独立的无头浏览器和随机端口模拟服务，检查所有页面的响应式布局、数字跨位与归零、减少动画、删除取消 / 失败 / 成功及原有表单操作，结束后关闭测试进程。截图和报告默认写入系统临时目录 `relay-ui-artifacts`，可通过 `UI_ARTIFACTS` 环境变量指定位置。
+
+界面代码位于 `static/index.html`、`static/app.css`、`static/app.js`；滚轮数字与删除控件位于 `static/ui.js`，不依赖 React 或外部 CDN。
+
+中文字体随项目嵌入 Adobe 官方 **思源黑体简体中文 2.005 可变版**，文件位于 `static/fonts/SourceHanSansSC-VF.woff2`，无需用户安装字体。完整 WOFF2 约 13.61 MiB，保留全部字形以覆盖任意群消息与知识内容；首次加载期间使用系统字体，不阻塞文字显示。正文 / 消息采用 16px，主要辅助文字提升至 14px。字体使用独立的 SIL OFL 1.1 许可证，来源、校验值及许可见 `static/fonts/README.md` 和 `static/fonts/OFL.txt`。
+
 ---
 
 ## 插件系统

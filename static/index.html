@@ -3,51 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f3f5f2">
     <title>QQ Bot Relay - WebUI</title>
     <link rel="stylesheet" href="static/app.css">
+    <script src="static/ui.js" defer></script>
+    <script src="static/app.js" defer></script>
 </head>
 <body>
-    <!-- Sidebar -->
+    <a class="skip-link" href="#content">跳到主要内容</a>
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <h1>QQ Bot Relay</h1>
-            <div>
-                <span class="status-dot offline" id="statusDot"></span>
-                <span class="status-text" id="statusText">未连接</span>
-            </div>
+            <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M8 8h7v7H8zM17 17h7v7h-7zM11.5 15v5.5H17M20.5 8v6M17.5 11h6" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg></div>
+            <div><h1>QQ Bot Relay</h1><p>机器人控制台</p></div>
         </div>
-        <nav class="sidebar-nav" id="nav">
-            <a class="nav-item active" data-view="dashboard" href="#/dashboard">
-                <span class="nav-icon">&#x1F4CA;</span> 仪表盘
-            </a>
-            <a class="nav-item" data-view="group-config" href="#/group-config">
-                <span class="nav-icon">&#x2699;&#xFE0F;</span> 群设置
-            </a>
-            <a class="nav-item" data-view="pipe-status" href="#/pipe-status">
-                <span class="nav-icon">&#x1F527;</span> 管道状态
-            </a>
-            <a class="nav-item" data-view="knowledge" href="#/knowledge">
-                <span class="nav-icon">&#x1F4DA;</span> 知识库
-            </a>
-            <a class="nav-item" data-view="plugins" href="#/plugins">
-                <span class="nav-icon">&#x1F9E9;</span> 插件管理
-            </a>
-            <a class="nav-item" data-view="send" href="#/send">
-                <span class="nav-icon">&#x2709;&#xFE0F;</span> 发消息
-            </a>
+        <div class="nav-caption">工作空间</div>
+        <nav class="sidebar-nav" id="nav" aria-label="主要导航">
+            <a class="nav-item active" data-view="dashboard" data-icon="dashboard" href="#/dashboard">仪表盘</a>
+            <a class="nav-item" data-view="group-config" data-icon="settings" href="#/group-config">群设置</a>
+            <a class="nav-item" data-view="pipe-status" data-icon="pipe" href="#/pipe-status">管道状态</a>
+            <a class="nav-item" data-view="knowledge" data-icon="book" href="#/knowledge">知识库</a>
+            <a class="nav-item" data-view="plugins" data-icon="plugin" href="#/plugins">插件管理</a>
+            <a class="nav-item" data-view="send" data-icon="send" href="#/send">发消息</a>
         </nav>
         <div class="sidebar-footer">
-            <button class="btn btn-outline btn-sm btn-block" id="btn-reload-global">&#x1F504; 重载人设</button>
+            <div class="connection-status"><span class="status-dot offline" id="statusDot"></span><span class="status-text" id="statusText">未连接</span></div>
+            <button class="btn btn-outline btn-sm btn-block" id="btn-reload-global">重载人设</button>
+            <p>QQ Bot Relay · 本地控制台</p>
         </div>
     </aside>
-
-    <!-- Main Content -->
-    <main class="main-content" id="content">
-        <div id="app-view">
-            <div class="loading">加载中</div>
-        </div>
+    <main class="main-content" id="content" tabindex="-1">
+        <div class="workspace-bar"><span>工作空间 <span class="breadcrumb-separator">/</span> <span id="current-page">仪表盘</span></span><span class="workspace-note">让对话自然发生</span></div>
+        <div id="app-view"><div class="loading">加载中</div></div>
     </main>
-
-    <script src="static/app.js"></script>
 </body>
 </html>
