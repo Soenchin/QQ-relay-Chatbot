@@ -9,15 +9,21 @@ import os
 import sys
 import time
 import uuid
+import ipaddress
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from collections import deque
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+import env_config
+from runtime_logs import RuntimeLogs, start_runtime_logging
+
+if __name__ == '__main__':
+    start_runtime_logging()
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
@@ -37,47 +43,28 @@ ENV_PATH = Path(__file__).parent / ".env"
 
 # ============ .env Helpers ============
 def read_env_file() -> dict:
-    """Read .env file into a dict."""
-    result = {}
-    if ENV_PATH.exists():
-        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                result[k.strip()] = v.strip()
-    return result
+    return env_config.read_env_file(ENV_PATH)
 
 
 def write_env_file(updates: dict) -> None:
-    """Write updates to .env file, preserving comments and order."""
-    lines = []
-    if ENV_PATH.exists():
-        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+    env_config.write_env_file(updates, ENV_PATH)
 
-    # Build a set of keys we're updating
-    update_keys = set(updates.keys())
-    updated = set()
-    new_lines = []
 
-    for line in lines:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            k, v = stripped.split("=", 1)
-            k = k.strip()
-            if k in update_keys:
-                new_lines.append(f"{k}={updates[k]}")
-                updated.add(k)
-            else:
-                new_lines.append(line)
-        else:
-            new_lines.append(line)
+def require_local_settings(request: Request) -> None:
+    """Credentials/CLI paths may only be configured from a local, same-origin UI."""
+    def is_local(host):
+        if host == 'localhost':
+            return True
+        try:
+            return ipaddress.ip_address(host or '').is_loopback
+        except ValueError:
+            return False
 
-    # Append any new keys not found
-    for k, v in updates.items():
-        if k not in updated:
-            new_lines.append(f"{k}={v}")
-
-    ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    if not request.client or not is_local(request.client.host) or not is_local(request.url.hostname):
+        raise HTTPException(403, '配置和运行日志仅允许从本机访问')
+    origin = request.headers.get('origin')
+    if request.headers.get('sec-fetch-site') == 'cross-site' or (origin and origin != f'{request.url.scheme}://{request.url.netloc}'):
+        raise HTTPException(403, '不允许跨站配置请求')
 
 
 # ============ EventBus ============
@@ -114,49 +101,6 @@ class EventBus:
         return len(self._subscribers)
 
 
-# ============ LogCapture ============
-class LogCapture:
-    """Intercept print output, write to both stdout and in-memory queue."""
-
-    def __init__(self, max_lines: int = 1000):
-        self._lines = deque(maxlen=max_lines)
-        self._original_stdout = sys.stdout
-
-    def write(self, text: str):
-        try:
-            self._original_stdout.write(text)
-        except UnicodeEncodeError:
-            self._original_stdout.write(text.encode('utf-8', errors='replace').decode('gbk', errors='replace'))
-        self._original_stdout.flush()
-        if text.strip():
-            self._lines.append({
-                "time": datetime.now().isoformat(),
-                "msg": text.rstrip("\n"),
-            })
-
-    def flush(self):
-        self._original_stdout.flush()
-
-    def isatty(self) -> bool:
-        return False
-
-    @property
-    def encoding(self):
-        return self._original_stdout.encoding
-
-    def get_recent(self, limit: int = 100, since: str | None = None) -> list[dict]:
-        lines = list(self._lines)
-        if since:
-            lines = [l for l in lines if l["time"] >= since]
-        return lines[-limit:]
-
-    def install(self):
-        sys.stdout = self
-
-    def uninstall(self):
-        sys.stdout = self._original_stdout
-
-
 # ============ Pydantic Models ============
 class GroupConfigUpdate(BaseModel):
     mode: str | None = None
@@ -188,11 +132,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
+def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: RuntimeLogs | None = None) -> FastAPI:
     app = FastAPI(lifespan=lifespan, title=f"{BOT_NAME} Relay WebUI")
 
     app.state.relay_bot = relay_bot
     app.state.eventbus = eventbus or EventBus()
+    app.state.log_capture = log_capture if log_capture is not None else start_runtime_logging()
 
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -201,6 +146,46 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
     @app.get("/api/config")
     async def get_config():
         return {"bot_name": BOT_NAME}
+
+    # ============ Connection Settings ============
+    @app.get('/api/settings')
+    async def get_settings(request: Request):
+        require_local_settings(request)
+        try:
+            env = read_env_file()
+        except (OSError, UnicodeError):
+            raise HTTPException(500, '无法读取配置文件，请检查权限和 UTF-8 编码')
+        return JSONResponse({**env_config.public_settings(env, env_config.INHERITED_ENV),
+                             'env_exists': ENV_PATH.exists()}, headers={'Cache-Control': 'no-store'})
+
+    @app.put('/api/settings')
+    async def update_settings(request: Request):
+        require_local_settings(request)
+        if request.headers.get('content-type', '').split(';')[0].strip().lower() != 'application/json':
+            raise HTTPException(415, '请使用 JSON 配置请求')
+        if len(await request.body()) > 65536:
+            raise HTTPException(413, '配置请求过大')
+        try:
+            payload = await request.json()
+        except (ValueError, UnicodeDecodeError):
+            raise HTTPException(400, '配置请求格式不正确')
+        try:
+            env = read_env_file()
+            updates, errors = env_config.validate_updates(payload, env, env_config.INHERITED_ENV)
+            if errors:
+                return JSONResponse({'detail': '请检查标出的配置项', 'errors': errors}, status_code=422,
+                                    headers={'Cache-Control': 'no-store'})
+            # A blank secret is keep, not clear. Only explicit clear_secrets removes it.
+            updates = {key: value for key, value in updates.items() if env.get(key) != value}
+            if updates:
+                app.state.log_capture.remember_secrets(source.get(key, '') for source in (env, updates) for key in env_config.SECRET_FIELDS)
+                write_env_file(updates)
+            return JSONResponse({'ok': True, 'updated': sorted(updates),
+                                 'restart_required': bool(updates),
+                                 **env_config.public_settings({**env, **updates}, env_config.INHERITED_ENV)},
+                                headers={'Cache-Control': 'no-store'})
+        except (OSError, UnicodeError):
+            raise HTTPException(500, '保存失败，请检查配置文件权限和 UTF-8 编码；原配置未更新')
 
     # ============ Env Config (Group Mode) ============
     @app.get("/api/env-config")
@@ -538,11 +523,11 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
 
     # ============ Logs ============
     @app.get("/api/logs")
-    async def get_logs(limit: int = 100):
-        log_capture = app.state.log_capture
-        if not log_capture:
-            return {"lines": []}
-        return {"lines": log_capture.get_recent(limit=limit)}
+    async def get_logs(request: Request, limit: int = Query(200, ge=1, le=1000),
+                       after: int | None = Query(None, ge=0), session: str | None = Query(None, max_length=64)):
+        require_local_settings(request)
+        return JSONResponse(app.state.log_capture.snapshot(limit=limit, after=after, session=session),
+                            headers={'Cache-Control': 'no-store'})
 
     # ============ WebSocket Real-time Push ============
     @app.websocket("/ws")
@@ -602,11 +587,6 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None) -> FastAPI:
             return FileResponse(str(spa_path))
         return {"error": "index.html not found"}
 
-    # Install log capture
-    log_capture = LogCapture()
-    log_capture.install()
-    app.state.log_capture = log_capture
-
     return app
 
 
@@ -621,6 +601,7 @@ async def start_webui(bot, eventbus: EventBus, host: str = "127.0.0.1", port: in
         host=host,
         port=port,
         log_level="info",
+        access_log=False,  # Polling logs must not produce another access-log entry.
         ws="websockets",
     )
     server = uvicorn.Server(config)
@@ -632,7 +613,7 @@ def run_webui_standalone():
     """Standalone mode (for development testing)"""
     app = create_app()
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8800, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8800, log_level="info", access_log=False)
 
 
 if __name__ == "__main__":

@@ -181,7 +181,6 @@ async function fetchGroups() {
         state.groups = await api('/api/groups');
         if (state.activeView === 'dashboard') renderDashboard();
         if (state.activeView === 'pipe-status') renderPipeStatus();
-        if (state.activeView === 'send' && !$('#send-message')) renderSend();
     } catch (e) { /* ignore */ }
 }
 async function fetchPipeState() {
@@ -199,7 +198,10 @@ async function fetchEnvConfig() {
 }
 
 // ============ Route Rendering ============
+let disposeView = () => {};
 function renderRoute() {
+    disposeView();
+    disposeView = () => {};
     const route = getRoute();
     state.activeView = route.view;
     const view = $('#app-view');
@@ -220,9 +222,13 @@ function renderRoute() {
         case 'pipe-status': renderPipeStatus(); break;
         case 'knowledge': renderKnowledge(); break;
         case 'plugins': renderPlugins(); break;
-        case 'send': renderSend(); break;
+        case 'settings': renderSettings(); break;
+        case 'logs': disposeView = renderLogs(); break;
+        case 'send': navigate('settings'); break; // Old bookmarks lead to the replacement page.
         default: view.innerHTML = '<div class="empty-state">页面不存在</div>';
     }
+    $('#content').focus({preventScroll: true});
+    window.scrollTo(0, 0);
 }
 
 // ============ Dashboard ============
@@ -777,49 +783,135 @@ function bindKnowledgeEditor(filename) {
         }, () => renderKnowledge());
 }
 
-// ============ Send Message ============
-function renderSend() {
-    (async () => {
-        let groups = state.groups;
-        if (!groups.length) {
-            try { groups = await api('/api/groups'); state.groups = groups; } catch (e) { /* ignore */ }
-        }
-        if (state.activeView !== 'send') return;
-        const options = groups.map(g => `<option value="${g.gid}">群 ${g.gid} (${g.mode})</option>`).join('');
-        $('#app-view').innerHTML = `
-            <div class="page-header">
-                <h2>发消息</h2>
-                <p>通过机器人向指定群发送消息</p>
-            </div>
-            <div class="card" style="max-width:600px">
-                <div class="form-group">
-                    <label for="send-group">目标群</label>
-                    <select id="send-group">${options || '<option value="">暂无可用群</option>'}</select>
-                </div>
-                <div class="form-group">
-                    <label for="send-message">消息内容</label>
-                    <textarea id="send-message" style="min-height:100px" placeholder="输入要发送的消息…"></textarea>
-                </div>
-                <button class="btn btn-primary" id="btn-send-message">${uiIcon('send')} 发送消息</button>
-                <div id="send-result" class="mt-20 text-sm"></div>
-            </div>`;
-        attachSendEvents();
-    })();
-}
+// ============ Connection Settings ============
+const SETTINGS_SECTIONS = [
+    { title: '机器人身份', description: '设置显示名称和管理权限。主人 QQ 填 0 表示不指定主人。', fields: [
+        ['BOT_NAME', '机器人名称', '显示在日志、管道和 WebUI 中。'],
+        ['MASTER_QQ', '主人 QQ', '此账号在管道群 @ 机器人时可获得额外写入权限，请核对号码。'],
+    ] },
+    { title: 'QQ 连接', description: '先在 SnowLuma / NapCat 中登录 QQ 并启用 OneBot WebSocket 服务；不是普通 QQ 客户端。', fields: [
+        ['NAPCAT_WS_URL', 'WebSocket 地址', '例如 ws://127.0.0.1:3001。Token 单独填写，不放进地址。'],
+        ['NAPCAT_TOKEN', 'OneBot Token', '与 SnowLuma / NapCat 配置中的 Token 保持一致。', 'secret'],
+    ] },
+    { title: 'AI 接口', description: '用于直调回复和管道图片描述。需提供 Anthropic 兼容接口；不会替你修改 Claude CLI 自身的配置。', fields: [
+        ['DEEPSEEK_BASE_URL', 'API 基地址', '例如 https://api.deepseek.com/anthropic；不要附带密钥。'],
+        ['DEEPSEEK_MODEL', '模型名称', '填写服务商支持的准确模型 ID。读图需要模型支持图像输入。'],
+        ['DEEPSEEK_API_KEY', 'API Key', '仅发送到本机配置接口，保存在本机 .env 中，不是加密存储。', 'secret'],
+    ] },
+    { title: '高级设置', description: '路径、端口与启动选项。更改目录不会自动搬迁现有数据。', advanced: true, fields: [
+        ['CLAUDE_CMD', 'Claude CLI 程序', '管道模式使用。可填 claude.cmd 或完整程序路径，不要填写整段启动命令。'],
+        ['MEM_DIR', '数据目录', '知识库、对话与插件数据的位置。相对路径按启动时的工作目录解析。'],
+        ['PIPE_ADD_DIR', '管道工作目录', '这是 Claude 可读取的目录；不要指向私人文档或整个磁盘。'],
+        ['MEME_SERVER_PORT', '图床端口', '取值 1–65535，不能与 WebUI 端口相同。', 'port'],
+        ['WEBUI_HOST', 'WebUI 监听地址', '仅允许回环 IP 或 localhost；当前管理界面没有登录鉴权。'],
+        ['WEBUI_PORT', 'WebUI 端口', '改动后需重启，并使用新端口重新打开网页。', 'port'],
+        ['WEBUI_ENABLED', '启动时开启 WebUI', '控制不带 --webui 参数时的行为；命令行 --webui 仍会强制开启。', 'boolean'],
+    ] },
+];
 
-function attachSendEvents() {
-    $('#btn-send-message')?.addEventListener('click', async () => {
-        const gid = parseInt($('#send-group')?.value || '0');
-        const msg = $('#send-message')?.value?.trim();
-        if (!gid || !msg) { $('#send-result').textContent = '请选择群并输入消息'; return; }
+async function renderSettings() {
+    const view = $('#app-view');
+    view.innerHTML = '<div class="page-header"><h2>连接与配置</h2><p>配置保存在本机 .env，保存后重启中继生效。</p></div><div id="settings-loading" class="loading" role="status">正在读取配置…</div>';
+    const loading = $('#settings-loading');
+    let settings;
+    try {
+        settings = await api('/api/settings');
+    } catch (error) {
+        if (loading.isConnected) loading.innerHTML = `<p>无法加载配置。请在中继所在电脑上打开本机 WebUI，并检查服务是否运行。</p><button type="button" class="btn btn-outline" id="settings-retry">重试</button>`;
+        $('#settings-retry')?.addEventListener('click', renderSettings);
+        return;
+    }
+    if (!loading.isConnected) return;
+    const fieldHTML = ([key, label, help, kind]) => {
+        const value = settings.values[key] ?? '';
+        const secret = kind === 'secret';
+        const configured = settings.secrets[key]?.configured;
+        const control = kind === 'boolean'
+            ? `<select id="setting-${key}" name="${key}" aria-describedby="help-${key} error-${key}"><option value="true" ${value === 'true' ? 'selected' : ''}>开启</option><option value="false" ${value === 'false' ? 'selected' : ''}>关闭</option></select>`
+            : `<input id="setting-${key}" name="${key}" type="${secret ? 'password' : kind === 'port' ? 'number' : 'text'}" value="${secret ? '' : escapeHtml(value)}" ${secret ? 'autocomplete="new-password"' : 'autocomplete="off" required'} ${kind === 'port' ? 'min="1" max="65535" step="1"' : 'maxlength="4096"'} ${key === 'MASTER_QQ' ? 'inputmode="numeric" pattern="[0-9]{1,20}"' : ''} aria-describedby="help-${key} error-${key}" ${secret ? `placeholder="${configured ? '已配置，留空保留原值' : '尚未配置'}"` : ''}>`;
+        return `<div class="form-group settings-field"><label for="setting-${key}">${label}${secret ? `<span class="secret-presence">${configured ? '已配置 · 不回显' : '未配置'}</span>` : ''}</label>${control}
+            <p id="help-${key}" class="field-help">${help}</p>${secret ? `<label class="clear-secret"><input type="checkbox" data-clear-secret="${key}">清除已保存的${label}（保存后生效）</label>` : ''}
+            <p id="error-${key}" class="field-error" aria-live="polite"></p></div>`;
+    };
+    const sections = SETTINGS_SECTIONS.map(section => {
+        const content = `<p class="section-description">${section.description}</p><div class="settings-fields">${section.fields.map(fieldHTML).join('')}</div>`;
+        return section.advanced ? `<details class="settings-card connection-section"><summary>${section.title}<span class="summary-hint">展开 / 收起</span></summary>${content}</details>`
+            : `<section class="settings-card connection-section"><h3>${section.title}</h3>${content}</section>`;
+    }).join('');
+    loading.outerHTML = `<form id="settings-form" autocomplete="off">
+        <div class="settings-notice">${settings.env_exists ? '编辑的是下次启动配置，不代表当前进程已应用。' : '尚未创建 .env，保存后会创建初始配置文件。'} 群模式和读图开关仍在 <a href="#/group-config">群设置</a> 中管理。</div>
+        <div id="settings-overrides" class="settings-notice" ${settings.environment_overrides.length ? '' : 'hidden'}></div>
+        <fieldset id="settings-fields">${sections}
+            <div class="settings-save-bar"><div><strong>保存到本机 .env</strong><span>不会自动重启、连接 QQ 或测试付费 API。留空的密钥不会被清除。</span></div><button type="submit" class="btn btn-primary" id="settings-save">${uiIcon('save')} 保存配置</button></div>
+        </fieldset><div id="settings-result" class="settings-result" role="status" tabindex="-1"></div>
+    </form>`;
+    const form = $('#settings-form');
+    const fieldset = $('#settings-fields');
+    const result = $('#settings-result');
+    function showOverrides(keys) {
+        const notice = $('#settings-overrides');
+        notice.hidden = !keys.length;
+        notice.textContent = keys.length ? `注意：${keys.join('、')} 由启动环境提供，优先于 .env；保存后还需在启动环境中调整或移除这些变量。` : '';
+    }
+    showOverrides(settings.environment_overrides);
+    form.addEventListener('input', () => { result.textContent = '有未保存的修改'; result.className = 'settings-result'; });
+    form.querySelectorAll('[data-clear-secret]').forEach(checkbox => checkbox.addEventListener('change', () => {
+        const input = form.elements.namedItem(checkbox.dataset.clearSecret);
+        input.disabled = checkbox.checked;
+        if (checkbox.checked) input.value = '';
+    }));
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const values = {};
+        const clear_secrets = [...form.querySelectorAll('[data-clear-secret]:checked')].map(input => input.dataset.clearSecret);
+        for (const section of SETTINGS_SECTIONS) for (const [key, , , kind] of section.fields) {
+            const input = form.elements.namedItem(key);
+            input.removeAttribute('aria-invalid');
+            $(`#error-${key}`).textContent = '';
+            if (kind === 'secret') {
+                if (!clear_secrets.includes(key) && input.value.trim()) values[key] = input.value;
+            } else if (!settings.env_exists || input.value !== settings.values[key]) values[key] = input.value;
+        }
+        if (!Object.keys(values).length && !clear_secrets.length) { result.textContent = '没有需要保存的修改'; return; }
+        fieldset.disabled = true;
+        result.textContent = '正在保存…';
+        result.className = 'settings-result';
         try {
-            await api('/api/send', {
-                method: 'POST', body: JSON.stringify({ group_id: gid, message: msg }),
-            });
-            $('#send-result').innerHTML = '<span style="color:var(--success)">已发送</span>';
-            $('#send-message').value = '';
-        } catch (e) {
-            $('#send-result').innerHTML = `<span style="color:var(--danger)">发送失败: ${escapeHtml(e.message)}</span>`;
+            const response = await fetch('/api/settings', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values, clear_secrets})});
+            const data = await response.json();
+            if (!form.isConnected) return;
+            if (!response.ok) {
+                let firstInvalid = null;
+                for (const [key, message] of Object.entries(data.errors || {})) {
+                    const input = form.elements.namedItem(key);
+                    if (!input) continue;
+                    input.setAttribute('aria-invalid', 'true');
+                    $(`#error-${key}`).textContent = message;
+                    const details = input.closest('details');
+                    if (details) details.open = true;
+                    firstInvalid ||= input;
+                }
+                fieldset.disabled = false;
+                firstInvalid?.focus();
+                throw new Error(data.detail || '保存失败，请重试');
+            }
+            settings = {...data, env_exists: true};
+            for (const section of SETTINGS_SECTIONS) for (const [key, , , kind] of section.fields) {
+                const input = form.elements.namedItem(key);
+                if (kind !== 'secret') { input.value = data.values[key]; continue; }
+                input.value = '';
+                input.disabled = false;
+                input.placeholder = data.secrets[key].configured ? '已配置，留空保留原值' : '尚未配置';
+                input.closest('.settings-field').querySelector('.secret-presence').textContent = data.secrets[key].configured ? '已配置 · 不回显' : '未配置';
+            }
+            form.querySelectorAll('[data-clear-secret]').forEach(input => { input.checked = false; });
+            showOverrides(data.environment_overrides);
+            result.className = 'settings-result success';
+            result.textContent = data.restart_required ? '已保存。请重启中继后生效；若修改了 WebUI 端口，请使用新端口打开。' : '配置未变化，无需重启。';
+        } catch (error) {
+            if (form.isConnected) { result.className = 'settings-result error'; result.textContent = error.message || '保存失败，请重试'; }
+        } finally {
+            if (fieldset.isConnected) fieldset.disabled = false;
         }
     });
 }

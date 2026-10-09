@@ -212,6 +212,42 @@ input::placeholder,textarea::placeholder { color: var(--text-muted); }
 .knowledge-editor textarea:focus-visible { outline-offset: -3px; }
 .knowledge-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 18px; border-top: 1px solid var(--border); background: var(--bg-elevated); }
 .editor-filename { flex: 1; min-width: 90px; overflow-wrap: anywhere; font-size: 14px; color: var(--text-secondary); }
+.logs-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.logs-toolbar .form-group { margin-bottom: 0; }
+.logs-search { flex: 1; min-width: min(100%,220px); }
+.logs-status { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 18px 0 12px; font-size: 14px; color: var(--text-secondary); }
+.logs-notice { margin-bottom: 12px; color: var(--warning); font-size: 14px; }
+.logs-stream { height: 480px; max-height: 65dvh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); }
+.log-row { display: grid; grid-template-columns: 76px 76px minmax(0,1fr); gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); align-items: baseline; font-size: 14px; }
+.log-row time { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 13px; }
+.log-level { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.log-row[data-level=ERROR],.log-row[data-level=CRITICAL] { background: var(--danger-bg); }
+.log-row[data-level=ERROR] .log-level,.log-row[data-level=CRITICAL] .log-level { color: var(--danger); }
+.log-row[data-level=WARNING] .log-level { color: var(--warning); }
+.log-message { white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas,'Relay Source Han Sans SC',monospace; }
+.logs-storage { margin-top: 24px; }
+#logs-path { overflow-wrap: anywhere; font-family: Consolas,'Relay Source Han Sans SC',monospace; }
+#logs-copy-fallback { width: 100%; margin-top: 12px; font-family: Consolas,'Relay Source Han Sans SC',monospace; }
+@media (max-width: 680px) { .log-row { grid-template-columns: 76px minmax(0,1fr); gap: 4px 10px; }.log-message { grid-column: 1 / -1; }.logs-toolbar > .form-group { width: 100%; }.logs-toolbar > .btn { flex: 1; } }
+#settings-form { max-width: 1100px; }
+#settings-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings-notice { padding: 14px 18px; margin-bottom: 20px; background: var(--success-bg); border: 1px solid var(--border); border-radius: 9px; font-size: 14px; overflow-wrap: anywhere; }
+.connection-section h3,.connection-section > summary { font-size: 18px; font-weight: 600; }
+.connection-section > summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; min-height: 44px; }
+.section-description { margin: 8px 0 22px; font-size: 14px; color: var(--text-secondary); }
+.settings-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,310px),1fr)); gap: 24px; }
+.settings-field { min-width: 0; margin: 0; }
+.settings-field > label { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.field-help { margin-top: 7px; color: var(--text-secondary); font-size: 14px; overflow-wrap: anywhere; }
+.secret-presence { font-size: 13px; font-weight: 400; color: var(--text-muted); }
+.settings-field .clear-secret { justify-content: flex-start; font-size: 14px; font-weight: 400; margin: 8px 0 0; min-height: 44px; cursor: pointer; }
+.clear-secret input { accent-color: var(--danger); width: 18px; height: 18px; }
+.field-error { color: var(--danger); font-size: 14px; margin-top: 6px; }
+.field-error:empty { display: none; }
+[aria-invalid=true] { border-color: var(--danger) !important; }
+.settings-result { margin-top: 18px; font-size: 14px; overflow-wrap: anywhere; }
+.settings-result.success { color: var(--success); }
+.settings-result.error { color: var(--danger); }
 .plugin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .plugin-header h3 { font-size: 16px; overflow-wrap: anywhere; }
 .plugin-desc { color: var(--text-secondary); font-size: 13px; margin-top: 6px; }

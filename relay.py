@@ -29,14 +29,16 @@ from pathlib import Path
 from urllib.parse import unquote
 import time
 
-# 手动加载 .env（免外部依赖）
-_env_path = Path(__file__).parent / ".env"
-if _env_path.exists():
-    for _line in _env_path.read_text(encoding="utf-8").splitlines():
-        _line = _line.strip()
-        if _line and not _line.startswith("#") and "=" in _line:
-            _k, _v = _line.split("=", 1)
-            os.environ.setdefault(_k.strip(), _v.strip())
+from env_config import read_env_file
+
+# OS environment variables still take precedence over the saved .env file.
+for _key, _value in read_env_file().items():
+    os.environ.setdefault(_key, _value)
+
+from runtime_logs import start_runtime_logging
+
+if __name__ == '__main__':
+    start_runtime_logging()
 
 import httpx
 
@@ -50,7 +52,7 @@ TOKEN = os.getenv("NAPCAT_TOKEN", "")
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic")
-DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 BOT_NAME = os.getenv("BOT_NAME", "QQ Bot")
 
@@ -1347,6 +1349,7 @@ def start_meme_http_server():
 
 
 async def main():
+    start_runtime_logging()
     retry = 3
 
     # 启动图床服务器（供容器内通过宿主网络读图）

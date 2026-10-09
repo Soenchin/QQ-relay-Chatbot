@@ -9,13 +9,37 @@ export async function startPreview(port = 8812) {
         recent:['小林：这个周末一起开黑吗？','阿青：我晚一点到，先帮我留个位置。','小林：没问题，群里喊你。']}));
     const files = new Map([['群聊说明.md','# 群聊说明\n\n欢迎来到开发讨论群。\n\n## 对话约定\n\n- 分享你正在做的东西\n- 遇到问题，把复现步骤一起贴出来\n- 留一点空间给轻松的聊天\n'],['游戏备忘.md','# 游戏备忘\n\n周末一起开黑。']]);
     let config = {group_mode:{100001:'pipe',100002:'pipe',100003:'pipe',100004:'direct'},fallback_mode:'direct',group_vision:[100001]};
+    let failLogs = false;
+    let logSession = 'preview-log-session';
+    let logPolls = 0;
+    let logSequence = 0;
+    const logLines = [];
+    const addLog = (msg, level='INFO') => logLines.push({id:++logSequence,time:new Date().toISOString(),level,stream:level==='ERROR'?'stderr':'stdout',msg});
+    addLog('[中继] 初始化完成');
+    addLog('[WebUI] 本机控制台已启动');
+    addLog('[中继] 已连接 OneBot，开始监听');
+    addLog('[管道] 收到新消息，累计 3 / 6');
+    addLog('[读图] 临时文件已清理');
+    addLog('[连接] 请求超时，稍后重试', 'WARNING');
+    addLog('[管道] 连接失败：Authorization: [REDACTED]', 'ERROR');
+    addLog('<img src=x onerror="window.logInjection=true"> — 这只是文本');
     let failDelete = false;
+    let failSettings = false;
+    let appSettings = {
+        BOT_NAME:'QQ Bot', MASTER_QQ:'0', NAPCAT_WS_URL:'ws://127.0.0.1:3001',
+        DEEPSEEK_BASE_URL:'https://api.deepseek.com/anthropic', DEEPSEEK_MODEL:'deepseek-v4-flash',
+        CLAUDE_CMD:'claude.cmd', MEM_DIR:'./memory', PIPE_ADD_DIR:'./memory',
+        MEME_SERVER_PORT:'8801', WEBUI_ENABLED:'true', WEBUI_HOST:'127.0.0.1', WEBUI_PORT:'8800',
+    };
+    const secretPresence = {DEEPSEEK_API_KEY:{configured:true},NAPCAT_TOKEN:{configured:true}};
+    const settingsResponse = () => ({values:appSettings,secrets:secretPresence,environment_overrides:[],env_exists:true});
     const plugins = [{name:'link_summary',desc:'识别群聊中的网页链接，自动整理简短摘要。',default:true,groups:{100001:true}},
         {name:'welcome',desc:'在新成员加入时送上一句欢迎。',default:false,groups:{}}];
     const writes = [];
-    const staticFiles = {'/':'static/index.html','/static/app.css':'static/app.css','/static/ui.js':'static/ui.js','/static/app.js':'static/app.js','/static/fonts/SourceHanSansSC-VF.woff2':'static/fonts/SourceHanSansSC-VF.woff2'};
+    const staticFiles = {'/':'static/index.html','/static/app.css':'static/app.css','/static/ui.js':'static/ui.js','/static/app.js':'static/app.js','/static/logs.js':'static/logs.js','/static/fonts/SourceHanSansSC-VF.woff2':'static/fonts/SourceHanSansSC-VF.woff2'};
     const server = http.createServer(async (req,res) => {
-        const path = new URL(req.url,'http://localhost').pathname;
+        const url = new URL(req.url,'http://localhost');
+        const path = url.pathname;
         const send = (data,status=200) => {res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
         try {
             if (staticFiles[path]) {
@@ -24,6 +48,17 @@ export async function startPreview(port = 8812) {
                 res.end(await readFile(new URL('../'+file,import.meta.url)));return;
             }
             if (req.method === 'GET') {
+                if(path==='/__preview/log-polls') return send({polls:logPolls,count:logLines.length});
+                if(path==='/api/logs') {
+                    logPolls++;
+                    if(failLogs) return send({detail:'模拟日志连接失败'},503);
+                    const after=Number(url.searchParams.get('after')||0);
+                    const session=url.searchParams.get('session');
+                    const reset=!!session && session!==logSession;
+                    const rows=reset?logLines:logLines.filter(line=>line.id>after);
+                    return send({lines:rows,cursor:logSequence,session:logSession,reset,gap:false,storage:{directory:'./memory/logs',filename:'relay.log',max_bytes:2097152,backups:1,available:true,error:null}});
+                }
+                if(path==='/api/settings') return send(settingsResponse());
                 if(path==='/api/config') return send({bot_name:'QQ Bot',preview:true});
                 if(path==='/api/status') return send({connected:true,bot_qq:123456,uptime:45360,subscribers:1});
                 if(path==='/api/groups') return send(groups);
@@ -40,12 +75,26 @@ export async function startPreview(port = 8812) {
             let raw=''; for await(const chunk of req) raw+=chunk;
             const body=raw?JSON.parse(raw):{};
             if(path==='/__preview/control') {
+                if('failLogs' in body) failLogs=body.failLogs;
+                if(body.resetLogs) {logLines.length=0;logSequence=0;logSession+='-restart';addLog('新进程已启动');}
+                if(body.appendLog) addLog(body.appendLog,body.logLevel||'INFO');
                 if('failDelete' in body) failDelete=body.failDelete;
+                if('failSettings' in body) failSettings=body.failSettings;
                 if('counter' in body) pipes[0].counter=body.counter;
                 if('threshold' in body) pipes[0].threshold=body.threshold;
                 return send({ok:true});
             }
             writes.push({method:req.method,path,body});
+            if(path==='/api/settings' && req.method==='PUT') {
+                if(failSettings) return send({detail:'模拟配置保存失败，原配置未更新'},500);
+                if(body.values?.WEBUI_HOST==='0.0.0.0') return send({detail:'请检查标出的配置项',errors:{WEBUI_HOST:'只允许本机地址'}},422);
+                for(const [key,value] of Object.entries(body.values||{})) {
+                    if(key in secretPresence) {if(value) secretPresence[key]={configured:true};}
+                    else appSettings[key]=value;
+                }
+                for(const key of body.clear_secrets||[]) if(key in secretPresence) secretPresence[key]={configured:false};
+                return send({...settingsResponse(),ok:true,updated:Object.keys(body.values||{}),restart_required:true});
+            }
             if(path.startsWith('/api/knowledge/')) {
                 const name=decodeURIComponent(path.slice('/api/knowledge/'.length));
                 if(req.method==='DELETE') {
