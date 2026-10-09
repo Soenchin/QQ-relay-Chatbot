@@ -596,21 +596,30 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: Ru
         await websocket.accept()
         eventbus = app.state.eventbus
         queue = eventbus.subscribe()
-        try:
+        async def send_events():
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=30)
-                    await websocket.send_json(event)
                 except asyncio.TimeoutError:
-                    try:
-                        await websocket.send_json({"type": "ping"})
-                    except Exception:
-                        break
-        except WebSocketDisconnect:
-            pass
-        except Exception:
+                    event = {"type": "ping"}
+                await websocket.send_json(event)
+
+        async def receive_disconnect():
+            while (await websocket.receive())['type'] != 'websocket.disconnect':
+                pass
+
+        tasks = [asyncio.create_task(send_events()), asyncio.create_task(receive_disconnect())]
+        try:
+            # Do not make shutdown wait for the next 30-second heartbeat.
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+        except (WebSocketDisconnect, OSError):
             pass
         finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             eventbus.unsubscribe(queue)
 
     # ============ Plugin Management ============

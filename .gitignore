@@ -26,3 +26,12 @@ QQBotData/
 .relay.lock
 .workbuddy/
 .zcode/
+
+# ─── 本地桌面版与打包工具（不纳入源码仓库） ───
+/build/
+/release/
+/desktop/
+/desktop_backend.py
+/packaging/
+/tools/build-portable.py
+/tools/test-portable.py

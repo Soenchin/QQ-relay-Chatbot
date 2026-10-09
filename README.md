@@ -1,463 +1,367 @@
-# QQ-relay-Chatbot
+# QQ Relay Chatbot
+
+基于 **OneBot v11 WebSocket** 的 QQ 群聊中继机器人，支持 [SnowLuma](https://github.com/SnowLuma/SnowLuma) 和 [NapCatQQ](https://github.com/NapNeko/NapCatQQ)。
+
+按群选择直调 API 或 Claude Code CLI 管道会话，通过本地 WebUI 配置机器人、管理知识库、查看日志，以及启动、停止和重启中继。
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-WebUI-009688?logo=fastapi&logoColor=white)
-![OneBot v11](https://img.shields.io/badge/Protocol-OneBot%20v11-5865F2)
+![FastAPI](https://img.shields.io/badge/WebUI-FastAPI-009688?logo=fastapi&logoColor=white)
+![OneBot](https://img.shields.io/badge/OneBot-v11-5865F2)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-red)
 
-基于 **OneBot v11 WebSocket** 的 QQ 群聊中继机器人。它把群消息分流到两条不同的 AI 路径：需要稳定、可控问答的群走直调 API；需要持续聊天上下文和主动接话的群走管道模式。
-
-支持 SnowLuma 与 NapCatQQ；带纯前端 WebUI、分群插件开关、管道读图、链接摘要、骰子和表情包图床。
-
-> 交流群：QQ 940358918
+> 交流群：**940358918**
 >
-> OneBot 实现： [SnowLuma](https://github.com/SnowLuma/SnowLuma) / [NapCatQQ](https://github.com/NapNeko/NapCatQQ)
+> 本仓库提供 Python 源码版。以下安装、运行与开发说明均以源码版为准。
 
----
+## 功能
 
-## 这东西能干嘛
+- **分群模式**：`direct` 直调 Anthropic 兼容 API；`pipe` 通过 Claude Code CLI 保留会话。
+- **主动接话**：管道群普通消息累积到随机阈值后触发回复，也可通过 @ 立即触发。
+- **管道读图**：按群开启，将图片转换成短文字描述，再加入聊天上下文。
+- **本地控制台**：仪表盘、群设置、管道状态、知识库、插件、连接配置和运行日志。
+- **独立启停**：停止中继后，控制台仍可用于改配置和排错。
+- **群聊功能**：骰子、表情包图床、链接摘要、戳一戳回复、新人欢迎和入群申请通知。
+- **日志留存**：终端、网页和磁盘共用凭据脱敏链路；文件自动轮换。
 
-- **双群模式**：`direct` 直调 API，`pipe` 管道会话；每个群独立配置
-- **主动发言**：管道群积累 4–8 条普通消息后随机接话，滑动窗口保留最近 30 条上下文
-- **管道读图**：按群开启；图片落入临时 inbox，压缩后由多模态 API 生成短描述，再作为文字上下文提供给管道
-- **链接摘要**：自动识别 Bilibili、GitHub 和通用网页链接；过滤 CQ 图片链接，带限流与失败兜底
-- **插件系统**：消息 / 通知 / 请求三类插件，支持全局与分群开关，配置持久化
-- **WebUI**：仪表盘、群设置、管道状态、知识库、插件、连接与配置（可视化编辑 `.env`）、运行日志
-- **日志留存**：启动输出与 stdout/stderr 异常共用脱敏链路；内存最近 1000 条，UTF-8 文件自动轮换
-- **本地功能**：骰子、表情包归档、OneBot 戳一戳回戳、加群申请提醒、新人欢迎
-- **发图保底**：发送前剥离本地图床中不存在或越界的 CQ 图片段，文字不会因一张失效图被整条吞掉
+## 两种群模式
 
----
-
-## 消息怎么走
-
-```text
-QQ 群消息
-  │
-  └─ OneBot v11（SnowLuma / NapCatQQ WebSocket）
-       │
-       └─ relay.py
-            │
-            ├─ .r d20 / .r 3d6  → 本地骰子，立即回复
-            │
-            ├─ pipe 群
-            │    ├─ 可选：图片下载 → 压缩 → 多模态短描述 → inbox / 滑动窗口
-            │    ├─ 插件（如链接摘要）
-            │    ├─ @ 机器人 → Claude Code CLI 管道会话
-            │    └─ 普通聊天累计到阈值 → 主动接话
-            │
-            └─ direct 群
-                 ├─ ! 管理命令（仅主人）
-                 ├─ 插件
-                 └─ @ 机器人 → Anthropic 兼容 HTTP API
-```
-
-管道群与直调群不是“高低配”，而是不同场景的两套动作系统：
-
-| | `direct` 直调 | `pipe` 管道 |
+| | `direct` 直调模式 | `pipe` 管道模式 |
 |---|---|---|
-| 适合 | 跑团、问答、只想被 @ 时回答的群 | 日常聊天、希望机器人有上下文与存在感的群 |
-| AI 调用 | 直接请求 Anthropic 兼容 API | 启动 Claude Code CLI 子进程并续接会话 |
-| 上下文 | `memory/conv/<群号>.json`，最多 50 条 | 最近 30 条群消息 + CLI 会话 |
-| 主动发言 | 不会 | 4–8 条普通消息随机触发 |
-| 图片理解 | 不参与 | 可按群开启，先转成短文字描述再接话 |
-| 管理命令 | 主人可用 | 忽略 `!` 命令 |
-| 工具权限 | 纯 API 回复 | 默认只读；主人 @ 时才额外开放写工具 |
+| 适用场景 | 问答、跑团、只想被 @ 时回答 | 持续聊天、上下文续接、主动接话 |
+| 回复方式 | Anthropic 兼容 HTTP API | Claude Code CLI 子进程 |
+| 触发方式 | @ 机器人 | @ 机器人，或普通消息累积到阈值 |
+| 上下文 | 本地对话历史，最多 50 条 | 最近 30 条群消息与 CLI 会话 |
+| 图片理解 | 不参与 | 可按群开启，先转换为文字描述 |
+| 群内管理命令 | 主人可用 | 忽略 `!` 管理命令 |
 
----
+默认主动接话阈值为 **4–8 条**，可在管道状态页调整。图片描述仍依赖支持图像输入的 API / 模型，不是把原图直接传给 CLI。
 
 ## 快速开始
 
-### 1. 准备环境
+### 1. 准备依赖
 
-| 组件 | 用途 |
+| 依赖 | 用途 |
 |---|---|
-| Python 3.10+ | 中继、WebUI、插件 |
-| 一个可登录的 QQ 号 | 机器人账号 |
-| SnowLuma 或 NapCatQQ | 提供 OneBot v11 WebSocket |
-| Node.js + Claude Code CLI | 仅 `pipe` 模式需要 |
+| Python 3.10+ | 运行中继、WebUI 和插件 |
+| SnowLuma 或 NapCatQQ | QQ 登录与 OneBot v11 WebSocket 服务 |
 | Anthropic 兼容 API | 直调回复，以及开启读图后的图片描述 |
+| Node.js 和 Claude Code CLI | 仅管道模式需要 |
 
-安装 Python 依赖：
+下载源码并安装 Python 依赖：
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/Soenchin/QQ-relay-Chatbot.git
+cd QQ-relay-Chatbot
+python -m pip install -r requirements.txt
 ```
 
-`Pillow` 用于图片压缩。没有它时机器人仍会运行，但读图图片无法做尺寸/体积压缩。
-
-如果要使用管道模式，安装 Claude Code CLI：
+建议使用独立 Python 虚拟环境。需要管道模式时，另行安装并配置 Claude Code CLI：
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
 
-### 2. 配置 OneBot
+### 2. 开启 OneBot WebSocket
 
-启动 SnowLuma 或 NapCatQQ，并启用 OneBot v11 反向 WebSocket / WebSocket 服务端。默认中继会连接：
+在 SnowLuma / NapCatQQ 中登录机器人 QQ，并开启 **WebSocket 服务端（正向 WebSocket）**。中继作为客户端连接它，默认地址是：
 
 ```text
 ws://127.0.0.1:3001
 ```
 
-地址和 Token 都能在 `.env` 中修改。
+记录实际地址和访问 Token，稍后填入配置页。**仅在普通 QQ 客户端登录，不会提供中继需要的 OneBot 接口。**
 
-### 3. 配置 `.env`
-
-推荐先在项目根目录运行 `python webui.py`，打开 <http://127.0.0.1:8800/#/settings> 的 **连接与配置**，填写 QQ 连接、API 和机器人身份；群模式在 **群设置** 中配置。默认只打开控制台，不连接 QQ；保存后直接点击页面顶部的 **启动中继**，无需关闭再开另一份服务。页面可直接创建缺失的 `.env`。
-
-也可以手动复制示例文件：
+### 3. 打开配置页
 
 ```bash
-copy .env.example .env
+python webui.py
 ```
 
-至少填写：
+访问 **<http://127.0.0.1:8800/#/settings>**，在“连接与配置”中填写：
 
-```dotenv
-DEEPSEEK_API_KEY=你的_API_Key
-NAPCAT_WS_URL=ws://127.0.0.1:3001
-NAPCAT_TOKEN=你的_OneBot_Token
-MASTER_QQ=你的QQ号
-BOT_NAME=QQ Bot
+- 机器人名称、主人 QQ 号；主人 QQ 为 `0` 时不指定主人。
+- OneBot WebSocket 地址和 Token。
+- 直调 / 读图使用的 API 地址、Key 和模型。
+- 使用管道模式时的 Claude CLI 命令。Windows 常用 `claude.cmd`，也可填写完整路径。
+
+默认只打开控制台，**不会自动连接 QQ**。保存后会创建项目旁的 `.env`；群模式和读图开关在“群设置”中配置。
+
+也可复制 [`.env.example`](.env.example) 为 `.env` 后手动编辑。示例 Key / Token 只是占位符，必须换成自己的配置。
+
+### 4. 启动中继
+
+点击页面顶部的 **启动中继**。显示“运行中”且日志出现“已登录 QQ”“开始监听”，表示 OneBot 已连通；这不等于 API 或 CLI 已验证可用。
+
+后续希望打开控制台时自动启动中继，可运行：
+
+```bash
+python webui.py --start
 ```
 
-然后按需要配置群模式，例如：
+也可使用原入口：
+
+```bash
+python relay.py --webui
+```
+
+不要同时运行两份控制台使用同一数据目录。
+
+## 启动、停止与配置生效
+
+| 操作 | 行为 |
+|---|---|
+| 启动中继 | 重新读取已保存的配置，初始化资源并连接 OneBot |
+| 停止中继 | 关闭连接、消息任务、HTTP 客户端、图床和自有 Claude 子进程树；控制台保留 |
+| 重启中继 | 先停止，再读取新配置启动 |
+| 关闭浏览器标签页 | 不会停止控制台或中继 |
+| 在终端按 Ctrl+C | 退出控制台，并清理本进程拥有的中继资源 |
+
+- 启动配置校验失败时，控制台仍可用来修复配置、查看日志。
+- OneBot 断开后会自动重连；手动停止会取消重连。
+- 停止会中断未完成的回复，但**不会结束独立运行的 SnowLuma / NapCat**。
+- 清理失败时保留资源归属并显示错误，不能直接重复启动；请先重试停止并检查日志。
+- 机器人设置保存后可通过“重启中继”应用。**WebUI 地址 / 端口、当前日志目录的变更需要退出并重开整个控制台**。
+- 读图开关会尽量热更新；群模式变更建议重启中继。
+- 系统或启动脚本设置的环境变量优先于 `.env`，配置页会提示覆盖项。
+
+若只运行无界面中继，设置 `WEBUI_ENABLED=false`，然后运行 `python relay.py`，不要加 `--webui`。
+
+## 常用配置
+
+完整示例与注释见 [`.env.example`](.env.example)。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `BOT_NAME` | `QQ Bot` | 机器人名称 |
+| `MASTER_QQ` | `0` | 主人 QQ；影响管理命令和管道写权限 |
+| `NAPCAT_WS_URL` | `ws://127.0.0.1:3001` | OneBot WebSocket 服务端地址 |
+| `NAPCAT_TOKEN` | 空 | OneBot 访问 Token |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/anthropic` | Anthropic 兼容 API 基地址 |
+| `DEEPSEEK_API_KEY` | 空 | 直调 / 读图 API Key |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | 直调 / 读图模型 ID，需与服务商支持的模型一致 |
+| `CLAUDE_CMD` | `claude` | CLI 命令；示例文件使用 `claude.cmd` |
+| `GROUP_MODE` | 空对象 | 群号到 `direct` / `pipe` 的映射 |
+| `FALLBACK_MODE` | `direct` | 未单独配置的群使用的模式 |
+| `GROUP_VISION` | 空列表 | 开启管道读图的群号 |
+| `MEM_DIR` | `./memory` | 知识、对话、插件配置和表情包目录 |
+| `PIPE_ADD_DIR` | `./memory` | CLI 工作目录与可读取目录；读图 inbox 也在此目录下 |
+| `MEME_SERVER_PORT` | `8801` | 表情包图床端口 |
+| `WEBUI_ENABLED` | `false` | 是否随 `relay.py` 启动 WebUI；示例文件设为 `true` |
+| `WEBUI_HOST` | `127.0.0.1` | 控制台监听地址 |
+| `WEBUI_PORT` | `8800` | 控制台端口 |
+
+分群示例：
 
 ```dotenv
 GROUP_MODE={"123456789":"pipe","987654321":"direct"}
 FALLBACK_MODE=direct
-```
-
-### 4. 启动
-
-Windows 下直接双击：
-
-```text
-启动中繼.bat
-```
-
-或命令行启动：
-
-```bash
-py -3.13 -u relay.py --webui
-```
-
-`relay.py --webui` 会打开控制台并尝试自动启动中继；配置校验失败时控制台仍可使用。不要同时另开 `webui.py` 使用同一数据目录。
-
-看到“已登录 QQ”和“开始监听”，且页面顶部显示“运行中”，才表示连接成功。日志示例：
-
-```text
-[中繼] 已登录 QQ: 12345678
-[中繼] 管道群: [123456789], 其他群走 direct
-[中繼] 读图群: （无，默认关）
-[中繼] 开始监听...
-```
-
----
-
-## 路径与中继启停
-
-控制台和中继分别管理：顶部提供 **启动 / 停止 / 重启中继**。停止会关闭 OneBot 连接、正在处理的消息、HTTP 客户端、图床和本程序启动的 Claude 子进程树；不会退出独立启动的 SnowLuma / NapCat。停止或启动失败后仍可编辑配置、查看日志。
-
-```bash
-# 只打开控制台，手动点击启动
-python webui.py
-# 打开控制台并自动启动中继
-python webui.py --start
-# 使用独立数据根目录（不会自动导入旧数据）
-python webui.py --data-dir "./QQBotData"
-```
-
-- 脚本版不指定数据根时保持旧布局：项目旁的 `.env` 和 `memory/`。
-- `--data-dir` 优先于环境变量 `QQBOT_DATA_DIR`；指定后 `.env` 位于该数据根。相对 `MEM_DIR`、`PIPE_ADD_DIR` 均相对于数据根解析，不随进程工作目录变化。
-- 独立数据根默认布局为 `.env`、`memory/`、`logs/`。冻结运行时的路径规则已预留为可执行文件旁的 `QQBotData/`；**目前尚未提供 EXE、桌面窗口或托盘**。
-- 数据目录不可写会明确报错，不会偷偷换位置。同一数据根只允许一个控制台 / 中继实例；锁由操作系统释放，崩溃后不必删除 `.relay.lock`。
-- 启动 / 重启会重新读取已保存配置。更改 WebUI 地址、端口或当前日志目录，需退出并重开整个控制台；不会自动迁移文件。
-- 关闭浏览器标签页不会停止后台控制台；脚本版使用终端 Ctrl+C 退出。退出会清理本进程拥有的中继资源。
-- 停止会中断尚未完成的回复；清理失败时显示错误并保留资源归属，需先重试停止，不能重复启动。
-
-## 配置参考
-
-完整注释见 [`.env.example`](.env.example)。下面是最常用的部分。
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `DEEPSEEK_API_KEY` | 无 | API Key；直调和图片描述都需要 |
-| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/anthropic` | Anthropic 兼容 API 基地址 |
-| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | 直调回复 / 图片描述使用的模型 ID |
-| `NAPCAT_WS_URL` | `ws://127.0.0.1:3001` | OneBot WebSocket 地址 |
-| `NAPCAT_TOKEN` | 空 | OneBot 鉴权 Token |
-| `BOT_NAME` | `QQ Bot` | 日志、WebUI、回复中的机器人名称 |
-| `MASTER_QQ` | `0` | 主人 QQ；用于管理命令和 pipe 写权限 |
-| `GROUP_MODE` | 空对象 | JSON 对象：群号 → `direct` / `pipe` |
-| `FALLBACK_MODE` | `direct` | 未单独配置的群使用的模式 |
-| `GROUP_VISION` | 空 | JSON 数组：开启管道读图的群号 |
-| `CLAUDE_CMD` | `claude` | Claude Code 命令或 Windows 下的 `claude.cmd` 路径 |
-| `MEM_DIR` | `./memory` | 记忆、知识库、插件配置、表情包目录 |
-| `MEME_SERVER_PORT` | `8801` | 本地表情包 HTTP 图床端口 |
-| `WEBUI_HOST` | `127.0.0.1` | WebUI 监听地址 |
-| `WEBUI_PORT` | `8800` | WebUI 端口 |
-
-### 群设置与读图
-
-`GROUP_VISION` 只对 `pipe` 群有意义。例如：
-
-```dotenv
-GROUP_MODE={"123456789":"pipe"}
 GROUP_VISION=[123456789]
 ```
 
-读图流程不是把原图直接塞给管道 CLI：
+API 配置页不会改写 Claude CLI 自身的配置，也不会自动发起付费 API 测试。
 
-1. OneBot 图片优先从 CQ URL 下载，失败时尝试 `get_image`。
-2. 图片写到 `memory/inbox/<群号>/`；GIF 取首帧，大图压缩到约 1.5 MB 以内。
-3. 多模态 API 生成不超过 80 字的客观短描述。
-4. 描述写入群聊滑动窗口，管道只读取文字上下文。
-5. 每群最多保留 5 张，超过 30 分钟或消息出窗口后自动清理。
+## 数据目录与备份
 
-在 WebUI 的 **群设置** 页勾选“读图”也可以写入 `GROUP_VISION`；读图开关会尽量热更新，群模式变更仍建议重启 relay。
+默认使用**项目目录旁**的 `.env` 和 `memory/`，不依赖启动命令所在的工作目录。
 
-> 读图依赖你的 API / 模型本身支持图像输入。不支持时会记录失败日志并按普通文本继续，不会卡住整个群消息流程。
+需要单独存放数据时：
 
----
+```bash
+python webui.py --data-dir "./QQBotData"
+# 自动启动中继：
+python webui.py --data-dir "./QQBotData" --start
+```
+
+也可以通过环境变量 `QQBOT_DATA_DIR` 指定数据根；`--data-dir` 优先。数据根需在启动时指定，不是在 `.env` 中切换。
+
+- `.env` 位于数据根目录。
+- 相对 `MEM_DIR`、`PIPE_ADD_DIR` 均相对于数据根解析；绝对路径保持原位置。
+- 同一数据根只允许一个控制台 / 中继实例。锁由操作系统释放，正常退出或崩溃后不需要手动删除 `.relay.lock`。
+- 数据根不可写时明确报错，不会静默换到其他目录。
+- **更改路径不会迁移旧文件**。迁移前先停止程序、备份配置和数据，再复制到新位置并核对路径。
+
+默认数据内容：
+
+```text
+.env                       # 连接与机器人配置（含明文凭据）
+memory/
+├── persona.md             # 机器人设定
+├── knowledge/             # Markdown 知识库
+├── conv/                  # direct 群对话历史
+├── memory/                # 记忆文件
+├── inbox/                 # 管道读图临时文件
+├── memes/                 # 表情包索引与图片
+├── plugins.json           # 插件开关
+└── logs/                  # 默认布局下的日志
+```
+
+自定义 `PIPE_ADD_DIR` 时，`inbox/` 跟随该路径；指定独立数据根时，日志改为数据根下的 `logs/`。Claude CLI 自身的用户配置与会话由 CLI 管理，不保证全部位于上述目录内。
+
+备份时保留 `.env`、`MEM_DIR`、自定义的 `PIPE_ADD_DIR` 及所需 CLI 配置。不要把包含凭据和聊天内容的备份公开分享。
 
 ## WebUI
 
-启动时带 `--webui`，或设置：
+默认地址：**<http://127.0.0.1:8800>**。
 
-```dotenv
-WEBUI_ENABLED=true
-```
-
-默认地址：<http://127.0.0.1:8800>
-
-| 页面 | 能做什么 |
+| 页面 | 功能 |
 |---|---|
-| 仪表盘 | 连接状态、运行时长、实时消息流、基础统计 |
-| 群设置 | 分群 `direct` / `pipe`、读图开关、`.env` 配置预览与保存 |
-| 管道状态 | 查看管道群的计数器、触发阈值和最近上下文 |
-| 知识库 | 新建、编辑、删除 Markdown 知识文件 |
-| 插件管理 | 全局开关、每群开关、热重载插件注册表 |
-| 连接与配置 | QQ 地址 / Token、API 地址 / Key / 模型、机器人身份、CLI / 数据目录与端口；保存到 `.env` 后重启生效 |
-| 运行日志 | 增量刷新、级别 / 关键词筛选、暂停滚动、复制筛选结果、查看本地日志位置 |
+| 仪表盘 | 连接状态、运行时长、实时消息与统计 |
+| 群设置 | 分群模式、读图开关、配置预览与保存 |
+| 管道状态 | 会话计数、消息积累、触发阈值与最近上下文 |
+| 知识库 | 新建、编辑和删除 Markdown 文件 |
+| 插件管理 | 全局 / 分群开关、重载插件注册表 |
+| 连接与配置 | 编辑机器人身份、QQ / API 连接、CLI 路径和端口 |
+| 运行日志 | 增量刷新、筛选、暂停滚动、复制与存储位置 |
 
-WebUI 默认只监听 `127.0.0.1`。**不要在没有鉴权和反向代理保护的情况下把它暴露到公网。**
+配置页只写变更字段，保留其他配置及注释，整批校验通过后原子保存。Key / Token 不回显：留空保留原值，明确勾选清除才删除。原“发消息”页面已移除，旧 `#/send` 书签会跳转配置页；发送 API 保留兼容。
 
-**连接与配置** 替代了原“发消息”页面（原发送 API 保留兼容，旧 `#/send` 书签跳转配置页）：
-- 配置接口仅允许本机、同源访问，不支持从远程电脑直接编辑凭据和 CLI 路径。
-- API Key / Token 不回显，只显示“已配置 / 未配置”；输入框留空保留原值，明确勾选清除才删除。文件中的密钥仍是明文，别分享 `.env`。
-- 只写入变更字段，保留其他配置和注释；整批校验通过后原子替换文件，写入失败不截断原文件。
-- **保存不等于热更新**：机器人设置可点击顶部“重启中继”应用；WebUI 地址 / 端口和日志目录需退出并重开整个控制台。换端口后需使用新地址；换数据目录不会自动搬迁数据。管道读图仍遵循“群设置”的现有热更新规则。
-- 系统 / 启动脚本环境变量优先于 `.env`，页面会提示覆盖项。此页的 AI 设置不改写 Claude CLI 自身的配置，也不会自动连接 QQ 或发起付费 API 测试。
+界面采用雾灰 / 鼠尾草绿浅色主题，支持窄屏和键盘操作。数字滚动动画遵循系统“减少动态效果”设置；知识库删除需二次确认，失败时保留编辑内容。
 
-界面使用雾灰 / 鼠尾草绿浅色主题，支持窄屏导航与键盘操作。管道会话数量、消息积累和当前阈值采用滚轮数字；系统开启“减少动态效果”时直接更新数字。知识库删除按钮点击后展开确认 / 取消，支持 Escape 取消；等待接口成功才显示完成，失败保留内容并允许重试。未保存的新文件不显示删除按钮。
+中文字体使用随项目提供的 Adobe **思源黑体简体中文 2.005 可变版**，无需安装或访问外部 CDN。完整字体约 13.61 MiB；首次加载时先使用系统字体。来源与 SIL OFL 1.1 许可见 [`static/fonts/README.md`](static/fonts/README.md)。
 
-### 运行日志与排错
+## 日志与排错
 
-启动中继或独立 WebUI 后，可在 **运行日志** 页面查看 stdout / stderr（包括启动输出和未捕获的 Python 异常）。仍保留终端输出；普通 `print` 的级别根据前缀、关键词和输出流推断，不等同于结构化业务事件。日志接口与连接配置一样，仅限本机同源访问。
+启动输出、stdout / stderr 和未捕获的 Python 异常会写入运行日志，同时保留终端输出。
 
-- 网页保留本次进程最近 **1000 条**，每 1.5 秒按游标增量读取，离开页面停止轮询。重启时自动切换到新进程；断线会自动重试，不清掉已显示内容。
-- **暂停滚动**只停止跟随底部，不停止接收。**清空显示**不删除服务器内存或磁盘文件，重新进入页面会再次显示保留的记录。
-- **复制筛选结果**只复制当前级别 / 关键词匹配的行；浏览器不允许剪贴板时，提供选中的文本供手动复制。
-- 旧布局文件默认在 `memory/logs/relay.log`，配置 `MEM_DIR` 后则是 `<MEM_DIR>/logs/relay.log`；指定独立数据根时固定在 `<数据根>/logs/relay.log`。每份约 **2 MiB**，最多 **1 份备份**（`relay.log.1`），总保留约 4 MiB，达到上限淘汰最旧记录。重启不会清空现有文件。
-- 每条完整日志即时刷新文件；突然断电或进程被强杀时，尚未完成的一行不能保证留下。文件不可写时继续保留内存日志，页面会显示存储错误。
-- 已配置的 Key / Token，以及常见 Authorization、Bearer、密钥字段和 URL 凭据会在进入终端、网页和文件**之前**脱敏。配置页替换密钥后，当前进程继续屏蔽新旧值。
-- **脱敏不等于匿名化**：群消息、昵称、QQ 号和文件路径仍可能在日志中；未知格式的凭据也不能保证全部识别。分享前务必检查内容。日志文件不要提交到仓库或打包分发。
-- 日志页不支持清除磁盘文件，避免误删排错证据；网页只显示当前进程，跨重启记录请查看本地文件。Uvicorn 的逐请求访问日志关闭，避免日志轮询把自己刷满。
+- **网页**：本次进程最近 1000 条，每 1.5 秒增量刷新；离开日志页停止轮询。
+- **文件**：默认 `<MEM_DIR>/logs/relay.log`；独立数据根下为 `<数据根>/logs/relay.log`。
+- **轮换**：当前文件加 **1 份备份** `relay.log.1`，每份约 2 MiB，总保留约 4 MiB；重启不清空文件。
+- **暂停滚动**：只停止自动滚到底部，不停止接收。
+- **清空显示**：仅清除当前页面内容，不删服务器内存或磁盘日志。
+- **复制**：复制当前筛选结果；剪贴板不可用时提供手动复制。
+- **跨重启记录**：网页只显示当前进程，旧记录查看本地文件。
 
-### 独立 UI 预览与验证
+已配置的 Key / Token 和常见凭据格式在进入终端、网页与文件前脱敏。**脱敏不等于匿名化**：消息、昵称、QQ 号和路径仍可能出现，未知凭据格式也不能保证全部识别，分享前务必检查。
 
-需要 Node.js 22+，无需安装前端依赖。在项目根目录运行：
+文件写入失败时会继续保留内存日志并提示错误。突然断电或强杀可能丢失尚未完成的一行。普通 `print` 的日志级别按内容推断，不等同于结构化业务事件。
 
-```bash
-node tools/preview.mjs
-```
+### 常见问题
 
-打开 <http://127.0.0.1:8812>。这是**模拟数据预览**：不启动 relay、不连接 QQ、不读取或写入真实知识库 / `.env`，所有修改只存在于预览进程内存中。按 Ctrl+C 停止；重新启动会重置数据。
+**一直显示“重连中”**
 
-运行浏览器回归检查：
+确认 SnowLuma / NapCat 已登录、启用的是 WebSocket 服务端，并核对地址、端口与 Token。查看日志中的连接错误；普通 QQ 登录本身不提供 OneBot 服务。
 
-```bash
-node tools/test-webui.mjs
-# 非默认 Windows Edge 路径时，传入本机 Chromium / Edge 可执行文件：
-node tools/test-webui.mjs "/path/to/chromium"
-```
+**找不到 `claude` 命令**
 
-后端测试：`python -m unittest discover -s tests -v`。使用临时配置 / 日志、模拟 OneBot、临时回环图床和测试专用子进程；覆盖配置权限、日志脱敏 / 轮换、路径与实例锁、启停竞态、重连、失败清理及自有进程树终止。不连接真实 QQ、不调用付费 API、不修改真实 `.env` 或知识库。
+确认已安装 Claude Code CLI，且当前进程能访问其 PATH。Windows 可设置 `CLAUDE_CMD=claude.cmd`，或填写完整路径。更改系统 PATH 后需重开控制台。
 
-浏览器测试会启动独立的无头浏览器和随机端口模拟服务，检查所有页面的响应式布局、数字跨位与归零、减少动画、删除取消 / 失败 / 成功及配置表单的密钥保留 / 清除 / 校验 / 失败重试、日志筛选 / 复制 / 断线 / 重启 / 离页停止轮询，以及中继停止后保留控制台、重复点击防护和启动失败恢复，结束后关闭测试进程。截图和报告默认写入系统临时目录 `relay-ui-artifacts`，可通过 `UI_ARTIFACTS` 环境变量指定位置。
+**收得到消息但不回复**
 
-界面代码位于 `static/index.html`、`static/app.css`、`static/app.js`；滚轮数字与删除控件位于 `static/ui.js`，日志页面位于 `static/logs.js`，日志采集与轮换位于 `runtime_logs.py`，不依赖 React 或外部 CDN。
+检查该群模式；direct 群需要 @，pipe 普通聊天需要累计到阈值。再检查 API / CLI 是否可用、模型 ID 和 Key 是否正确。连接 OneBot 成功不代表 AI 服务已就绪。
 
-中文字体随项目嵌入 Adobe 官方 **思源黑体简体中文 2.005 可变版**，文件位于 `static/fonts/SourceHanSansSC-VF.woff2`，无需用户安装字体。完整 WOFF2 约 13.61 MiB，保留全部字形以覆盖任意群消息与知识内容；首次加载期间使用系统字体，不阻塞文字显示。正文 / 消息采用 16px，主要辅助文字提升至 14px。字体使用独立的 SIL OFL 1.1 许可证，来源、校验值及许可见 `static/fonts/README.md` 和 `static/fonts/OFL.txt`。
+**读图没有生效**
 
----
+确认该群为 pipe 且开启读图；模型必须支持图片输入。查看 `[读图]` 日志。下载或识别失败时会按普通文本继续。
 
-## 插件系统
+**启动失败，提示图床端口占用**
 
-插件配置在 `memory/plugins.json`，支持三种事件：
+检查 `MEME_SERVER_PORT`，停止占用它的多余实例或换端口后重启中继。不要随意结束不认识的进程。
 
-| 注册函数 | 触发时机 | 内置例子 |
-|---|---|---|
-| `register()` | 群消息 | `link_summary` |
-| `register_notice()` | OneBot notice | 戳一戳回戳、入群欢迎 |
-| `register_request()` | OneBot request | 加群申请提醒 |
+**重复回复 / 双响**
 
-消息插件签名：
+可能有多个中继连接同一个 QQ。实例锁只限制相同数据根；不同目录或旧版本仍可能重复运行。核对进程归属后停止多余实例。
+
+**保存配置后没有变化**
+
+检查页面是否提示环境变量覆盖，并按配置类型重启中继或整个控制台。更改数据目录不会自动搬迁旧内容。
+
+## 群聊功能与插件
+
+### 内置命令
+
+所有群可使用骰子：`.r d20`、`.r 3d6`、`.r 100`。
+
+以下管理命令仅对 **direct 群中的主人** 开放：
+
+| 命令 | 作用 |
+|---|---|
+| `!帮助` | 显示命令表 |
+| `!清空记忆` | 清空当前群的直调历史 |
+| `!重载` | 重读人设、知识库和记忆 |
+| `!人设 内容` | 更新人设并重载 |
+| `!知识` | 列出知识库文件 |
+| `!状态` | 查看当前群历史统计 |
+| `!打标` | 列出待分类表情包 |
+| `!标 文件名 标签` | 归档表情包并添加标签 |
+
+表情包索引默认位于 `memory/memes/archive/index.md`。发送前会剥离不存在或越界的本地图床图片引用，避免失效图片导致整条文字回复发送失败。
+
+### 插件接口
+
+内置插件包括 Bilibili / GitHub / 通用网页链接摘要、戳一戳回复、新人欢迎和入群申请通知。可在 WebUI 中全局或按群启停；配置保存在 `MEM_DIR/plugins.json`。
+
+三类注册入口：`register()` 消息、`register_notice()` 通知、`register_request()` 请求。消息插件示例：
 
 ```python
 async def my_plugin(bot, gid, uid, nick, text, is_at):
-    # 返回 True：拦截，后续 AI 不回复
-    # 返回 False / None：放行
     if "关键词" in text:
         await bot.send_group(gid, "收到")
-        return True
+        return True  # 已处理，不再继续 AI 回复
     return False
 
 register("my_plugin", "关键词回复", my_plugin, default_enabled=True)
 ```
 
-### 内置插件：链接摘要
+现有接口与实现见 [`plugins.py`](plugins.py)。
 
-`link_summary` 默认开启。群里出现网页链接时会：
+## 安全注意事项
 
-- Bilibili：标题、UP 主、封面、播放/点赞/弹幕
-- GitHub：仓库简介、star/fork、语言、许可证等
-- 其他网页：读取 Open Graph / `<title>` / description
-- 忽略 CQ 图片、QQ 多媒体直链和纯图片链接
-- 摘要正文最多 100 字，但统计行会完整保留
-- 单群限流为每分钟 3 次；同一链接 5 分钟内去重
+- **不要直接把 WebUI 暴露到公网。** 默认仅监听 `127.0.0.1`；配置、日志和启停接口限制本机同源访问，但这不等于整个控制台具备完整的用户鉴权。
+- `.env` 中的凭据是明文。不要提交真实配置、知识库、聊天记录、日志或备份。
+- 管道模式会启动具有工具权限的 CLI。普通群友默认开放 `WebSearch`、`Read`、`Glob`；主人 @ 时会额外开放写入和命令工具。
+- 谨慎填写 `MASTER_QQ`，不要把 `PIPE_ADD_DIR` 指向整个磁盘、私人文档或含凭据的目录。
+- 网页、群消息和知识内容可能包含不可信指令；工具权限限制不应被当作完整沙箱。
 
-插件不会因为拉取失败把机器人搞挂：失败只会发出“链接内容拉取失败”的提示。
+## 开发与验证
 
----
+### 模拟 WebUI
 
-## 群内功能
+需要 Node.js 22+，无需安装前端依赖：
 
-### 骰子
+```bash
+node tools/preview.mjs
+```
 
-所有群都能用：
+打开 <http://127.0.0.1:8812>。预览只使用内存模拟数据，不启动 QQ 中继、不读写真实 `.env` 或知识库；重启预览会重置内容。
 
-| 输入 | 效果 |
-|---|---|
-| `.r d20` | 投一个 D20 |
-| `.r 3d6` | 投 3 个 D6 并求和 |
-| `.r 100` | 投一个 D100 |
+### 测试
 
-### 管理命令
+```bash
+# 后端单元 / 集成测试
+python -m unittest discover -s tests -v
 
-仅 **主人（`MASTER_QQ`）在 direct 群** 可用：
+# 浏览器回归测试，默认使用本机 Windows Edge
+node tools/test-webui.mjs
+# 也可指定 Chromium / Edge 可执行文件
+node tools/test-webui.mjs "/path/to/chromium"
+```
 
-| 命令 | 作用 |
-|---|---|
-| `!帮助` | 显示命令表 |
-| `!清空记忆` | 清空本群直调对话历史 |
-| `!重载` | 重读人设、知识库和记忆文件 |
-| `!人设 xxx` | 改写人设并重载 |
-| `!知识` | 列出知识库文件 |
-| `!状态` | 查看本群历史统计 |
-| `!打标` | 列出待分类表情包 |
-| `!标 <文件名> <标签>` | 归档表情包并添加标签 |
+后端测试使用临时文件、模拟 OneBot、临时回环图床和测试专用子进程，覆盖配置权限、日志脱敏 / 轮换、路径、实例锁、启停竞态和资源清理。不连接真实 QQ，不调用付费 API。
 
-### 表情包
+浏览器测试使用随机端口模拟服务和独立浏览器配置，检查响应式布局、数字动画、删除确认、配置表单、日志及启停交互。截图和报告默认写入系统临时目录 `relay-ui-artifacts`，可用 `UI_ARTIFACTS` 指定位置。
 
-管道回复会以 50% 概率得到表情包提示。机器人会读取：
+### 主要文件
 
 ```text
-memory/memes/archive/index.md
+relay.py                  # OneBot、群消息分流、CLI、读图和直调 API
+relay_control.py          # 启动、停止、重启与重连状态
+owned_process.py          # 自有 CLI 子进程树管理
+app_paths.py              # 资源 / 数据路径与实例锁
+env_config.py             # 配置解析、校验与原子写入
+runtime_logs.py           # 日志采集、脱敏和轮换
+webui.py                  # FastAPI API、WebSocket 和静态文件服务
+plugins.py                # 插件注册表与内置插件
+static/                   # 原生 HTML / CSS / JavaScript 界面
+tests/                    # 后端测试
+tools/preview.mjs         # 模拟服务
+tools/test-webui.mjs      # 浏览器回归测试
+.env.example              # 配置示例
 ```
 
-从索引里选择合适图片并通过本地图床发送。发送前会检查图片是否存在且位于允许目录内；图片失效时只剥掉图片 CQ 码，文字照常发送。
+提交改动前运行相关测试，避免把真实凭据、用户数据或本机运行产物加入 Git。反馈问题时请提供 Python 版本、OneBot 实现、脱敏日志和复现步骤。
 
----
-
-## 目录说明
-
-```text
-QQ-relay-Chatbot/
-├── relay.py             # OneBot 中继、分流、管道、读图、直调 API
-├── app_paths.py         # 资源 / 数据路径与数据根实例锁
-├── relay_control.py     # 中继启动、停止、重启与重连状态
-├── owned_process.py     # 自有 Claude 子进程树清理
-├── plugins.py           # 插件注册表和内置插件
-├── webui.py             # FastAPI API / WebSocket / 静态文件服务
-├── static/              # WebUI SPA
-├── memory/
-│   ├── persona.md       # 机器人设定（运行时创建）
-│   ├── knowledge/       # Markdown 知识库
-│   ├── conv/            # direct 群对话历史
-│   ├── inbox/           # pipe 读图临时文件（自动清理）
-│   ├── memes/           # 表情包索引与文件
-│   └── plugins.json     # 插件开关配置
-├── .env.example         # 配置样例
-└── requirements.txt
-```
-
-`memory/`、`QQBotData/`、`.relay.lock`、`.workbuddy/`、`.zcode/` 都是本地运行数据 / 工具文件，默认不会进 git。自定义数据目录也不要提交或打包分发。
-
----
-
-## 安全与排错
-
-### 管道权限
-
-普通群友触发管道时只开放：
-
-```text
-WebSearch, Read, Glob
-```
-
-只有 `MASTER_QQ` 在管道群 @ 机器人时，才会额外开放 `Edit`、`Write`、`Bash`、`Grep` 等工具。别把 `MASTER_QQ` 随便填成陌生人，也不要把 `PIPE_ADD_DIR` 指到不该让机器人读的目录。
-
-### 常见问题
-
-**`claude 命令未找到`**
-
-确认已安装 Claude Code；Windows 常用配置：
-
-```dotenv
-CLAUDE_CMD=claude.cmd
-```
-
-如果命令没在 PATH 中，填绝对路径。
-
-**机器人收得到消息但不回复**
-
-1. 看终端是否显示“已登录 QQ”。
-2. 确认该群在 `GROUP_MODE` 中的模式，或检查 `FALLBACK_MODE`。
-3. `direct` 群只有 @ 机器人后才会调用 AI。
-4. `pipe` 群的主动发言要等随机阈值；@ 可以立即触发。
-5. 检查 API Key、OneBot WebSocket 地址与 Token。
-
-**读图没有生效**
-
-1. 确认群是 `pipe`。
-2. 确认 `GROUP_VISION` 是 JSON 数组且包含该群号。
-3. 看日志里的 `[读图]`；直链失败会自动尝试 OneBot `get_image`。
-4. 确认 API 模型支持图片输入。
-
-**消息带图时文字没发出去**
-
-新版会在发送前检查本地图床图片。仍有问题时，请检查 `MEME_SERVER_PORT` 是否被占用，以及 `memory/memes/` 文件是否存在。
-
-**重复回复（双响）**
-
-通常是多个 relay 进程同时连接 OneBot。新版阻止同一数据根重复启动，但不同数据根或旧版本仍可能重复连接。确认进程归属后停止多余实例，只保留一个。
-
----
-
-## 开发与贡献
-
-- 修改插件后，可在 WebUI 的插件管理页重载注册表。
-- 修改 `GROUP_MODE` 后建议重启 relay；读图开关会尽量热更新。
-- 改动前优先看 `.env.example` 和现有插件接口，别把真实 Key、QQ 号或本地绝对路径提交进仓库。
-- 欢迎 Issue / PR；请描述 OneBot 实现、Python 版本、相关日志和复现步骤。
-
----
-
-## License
+## 许可证
 
 [AGPL-3.0](LICENSE) · Copyright (C) 2026 Soenchin
 
-项目地址：<https://github.com/Soenchin/QQ-relay-Chatbot>
+思源黑体单独遵循 [SIL OFL 1.1](static/fonts/OFL.txt)。
