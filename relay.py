@@ -29,11 +29,13 @@ from pathlib import Path
 from urllib.parse import unquote
 import time
 
-from env_config import read_env_file
+from app_paths import bootstrap_data_dir, discover_paths, InstanceLock
 
-# OS environment variables still take precedence over the saved .env file.
-for _key, _value in read_env_file().items():
-    os.environ.setdefault(_key, _value)
+if __name__ == '__main__':
+    bootstrap_data_dir()
+
+from env_config import runtime_settings
+from owned_process import OwnedProcess
 
 from runtime_logs import start_runtime_logging
 
@@ -56,11 +58,11 @@ DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 BOT_NAME = os.getenv("BOT_NAME", "QQ Bot")
 
-MASTER_QQ = int(os.getenv("MASTER_QQ", "0"))
+MASTER_QQ = 0  # Runtime configuration is applied only after controller validation.
 
 # 群模式分流 — 通过环境变量 GROUP_MODE 配置 JSON，如：
 #   {"123456789":"direct","987654321":"pipe"}
-GROUP_MODE_RAW = os.getenv("GROUP_MODE", "")
+GROUP_MODE_RAW = ''
 if GROUP_MODE_RAW:
     GROUP_MODE = {int(k): v for k, v in json.loads(GROUP_MODE_RAW).items()}
 else:
@@ -74,12 +76,12 @@ def pipe_session_id(gid: int) -> str:
 
 # 管道进程配置
 CLAUDE_CMD = os.getenv("CLAUDE_CMD", "claude")
-PIPE_ADD_DIR = Path(os.getenv("PIPE_ADD_DIR", str(Path(__file__).parent / "memory")))
+PIPE_ADD_DIR = discover_paths().pipe
 PIPE_WORK_DIR = PIPE_ADD_DIR  # 跟 --add-dir 一致，物理隔离
 PIPE_ALLOWED_TOOLS = "WebSearch,Read,Glob"
 PIPE_ALLOWED_TOOLS_ADMIN = "WebSearch,Read,Edit,Write,Bash,Grep,Glob"
 
-MEM_DIR = Path(os.getenv("MEM_DIR", str(Path(__file__).parent / "memory")))
+MEM_DIR = discover_paths().memory
 MAX_HISTORY = 50
 
 # 人设 + 知识库
@@ -91,7 +93,7 @@ MEMORY_DIR = MEM_DIR / "memory"
 MEME_DIR = MEM_DIR / "memes"
 MEME_ARCHIVE_DIR = MEME_DIR / "archive"
 MEME_UNSORTED_DIR = MEME_DIR / "unsorted"
-MEME_SERVER_PORT = int(os.getenv("MEME_SERVER_PORT", "8801"))
+MEME_SERVER_PORT = 8801
 MEME_PROMPT_EXTRA = (
     "\n\n你有表情包可以用。规则："
     "先 Read memes/archive/index.md 筛图，"
@@ -100,8 +102,10 @@ MEME_PROMPT_EXTRA = (
     "每次最多一张图。"
 )
 
+_MEME_PROMPT_TEMPLATE = MEME_PROMPT_EXTRA
+
 # 管道读图（默认关；GROUP_VISION 为开启读图的群号 JSON 数组，如 [732123758]）
-GROUP_VISION_RAW = os.getenv("GROUP_VISION", "")
+GROUP_VISION_RAW = ''
 if GROUP_VISION_RAW:
     try:
         GROUP_VISION = {int(x) for x in json.loads(GROUP_VISION_RAW)}
@@ -120,6 +124,31 @@ IMAGE_MAX_SIDE = 1280
 CQ_IMAGE_RE = re.compile(r"\[CQ:image,([^\]]*)\]", re.IGNORECASE)
 # 中继侧 vision 描述后塞进窗口；管道只吃文字，不再要求 CLI Read 图片
 VISION_CAPTION_MAX = 80
+
+
+def configure_runtime(config, paths):
+    """Legacy helpers share one active configuration; controller stops it before replacing it."""
+    global WS_URL, TOKEN, DEEPSEEK_API_KEY, DEEPSEEK_BASE, DEEPSEEK_MODEL, BOT_NAME, MASTER_QQ
+    global GROUP_MODE, FALLBACK_MODE, PIPE_GROUPS, GROUP_VISION, CLAUDE_CMD
+    global PIPE_ADD_DIR, PIPE_WORK_DIR, MEM_DIR, PERSONA_FILE, KNOWLEDGE_DIR, MEMORY_DIR
+    global MEME_DIR, MEME_ARCHIVE_DIR, MEME_UNSORTED_DIR, MEME_SERVER_PORT, MEME_PROMPT_EXTRA, INBOX_DIR
+    WS_URL, TOKEN = config['NAPCAT_WS_URL'], config['NAPCAT_TOKEN']
+    DEEPSEEK_API_KEY, DEEPSEEK_BASE, DEEPSEEK_MODEL = config['DEEPSEEK_API_KEY'], config['DEEPSEEK_BASE_URL'], config['DEEPSEEK_MODEL']
+    BOT_NAME, MASTER_QQ = config['BOT_NAME'], int(config['MASTER_QQ'])
+    GROUP_MODE = {int(key): value for key, value in json.loads(config.get('GROUP_MODE') or '{}').items()}
+    FALLBACK_MODE = config['FALLBACK_MODE']
+    PIPE_GROUPS = [gid for gid, mode in GROUP_MODE.items() if mode == 'pipe']
+    GROUP_VISION = {int(gid) for gid in json.loads(config.get('GROUP_VISION') or '[]')}
+    CLAUDE_CMD = config['CLAUDE_CMD']
+    PIPE_ADD_DIR = PIPE_WORK_DIR = paths.pipe
+    MEM_DIR, PERSONA_FILE, KNOWLEDGE_DIR = paths.memory, paths.persona, paths.knowledge
+    MEMORY_DIR = paths.memory / 'memory'
+    MEME_DIR = paths.memes
+    MEME_ARCHIVE_DIR, MEME_UNSORTED_DIR = paths.memes / 'archive', paths.memes / 'unsorted'
+    MEME_SERVER_PORT = int(config['MEME_SERVER_PORT'])
+    MEME_PROMPT_EXTRA = _MEME_PROMPT_TEMPLATE.replace(':8801/', f':{MEME_SERVER_PORT}/')
+    INBOX_DIR = paths.inbox
+    plugins.configure_paths(paths)
 
 
 def _normalize_media_url(url: str) -> str:
@@ -359,15 +388,11 @@ def load_persona() -> str:
 class RelayBot:
     def __init__(self, eventbus=None):
         self.ws = None
+        self.connected = False
+        self._message_tasks = set()
+        self._commands = set()
         self.bot_qq = None
-        self.http = httpx.AsyncClient(
-            timeout=60.0,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-            },
-            follow_redirects=True,
-        )
+        self.http = None
         self._api_futures = {}  # echo -> Future，OneBot 同步调用
         self.eventbus = eventbus
         self._start_time = time.time()
@@ -422,6 +447,8 @@ class RelayBot:
         print(f"[中繼] 管道群: {PIPE_GROUPS}, 其他群走 {FALLBACK_MODE}")
         print(f"[中繼] 读图群: {sorted(self.GROUP_VISION) if self.GROUP_VISION else '（无，默认关）'}")
         print(f"[中繼] 主动发言阈值: {self._pipe_thresholds}")
+        self.http = httpx.AsyncClient(timeout=60.0, follow_redirects=True,
+            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8'})
 
     async def publish_event(self, event: dict):
         """推事件到 WebUI（如有 EventBus）"""
@@ -471,25 +498,74 @@ class RelayBot:
     async def connect(self):
         headers = {"Authorization": f"Bearer {TOKEN}"}
         self.ws = await websockets.connect(WS_URL, additional_headers=headers)
-        first = json.loads(await self.ws.recv())
+        first = json.loads(await asyncio.wait_for(self.ws.recv(), timeout=15))
         self.bot_qq = first.get("self_id", "?")
+        self.connected = True
         print(f"[中繼] 已登录 QQ: {self.bot_qq}")
 
-    async def run(self):
-        await self.connect()
-        print("[中繼] 开始监听...")
-        async for msg in self.ws:
+    async def run(self, on_connected=None):
+        try:
+            await self.connect()
+            if on_connected:
+                await on_connected()
+            print('[中繼] 开始监听...')
+            async for msg in self.ws:
+                try:
+                    data = json.loads(msg)
+                    if 'echo' in data and ('status' in data or 'retcode' in data or 'data' in data):
+                        future = self._api_futures.pop(data.get('echo'), None)
+                        if future and not future.done():
+                            future.set_result(data)
+                        continue
+                    task = asyncio.create_task(self.on_message(data))
+                    self._message_tasks.add(task)
+                    task.add_done_callback(self._message_done)
+                except json.JSONDecodeError:
+                    pass
+        finally:
+            await self.disconnect()
+
+    def _message_done(self, task):
+        self._message_tasks.discard(task)
+        if not task.cancelled() and task.exception():
+            print(f'[中继] 消息处理失败: {task.exception()}')
+
+    async def disconnect(self):
+        self.connected = False
+        tasks = list(self._message_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        for future in self._api_futures.values():
+            if not future.done():
+                future.cancel()
+        self._api_futures.clear()
+        if self.ws:
+            await self.ws.close()
+            self.ws = None
+
+    async def close(self):
+        try:
+            await self.disconnect()
+        finally:
             try:
-                data = json.loads(msg)
-                # OneBot API 回包（带 echo / status）
-                if "echo" in data and ("status" in data or "retcode" in data or "data" in data):
-                    fut = self._api_futures.pop(data.get("echo"), None)
-                    if fut and not fut.done():
-                        fut.set_result(data)
-                    continue
-                asyncio.create_task(self.on_message(data))
-            except json.JSONDecodeError:
-                pass
+                for command in list(self._commands):
+                    await command.close()
+                    self._commands.discard(command)
+            finally:
+                if self.http:
+                    await self.http.aclose()
+
+    async def _pipe_process(self, args, message, env):
+        command = OwnedProcess()
+        self._commands.add(command)
+        try:
+            return await command.run(args, input_data=message.encode('utf-8'),
+                                     cwd=str(PIPE_WORK_DIR), env=env, timeout=120)
+        finally:
+            if command._closed:
+                self._commands.discard(command)
 
     async def on_message(self, data: dict):
         post_type = data.get("post_type")
@@ -541,22 +617,12 @@ class RelayBot:
         pipe_env = {**os.environ,
             "ANTHROPIC_AUTH_TOKEN": DEEPSEEK_API_KEY,
             "ANTHROPIC_BASE_URL": DEEPSEEK_BASE,
-            "ANTHROPIC_MODEL": "deepseek-v4-flash",
+            "ANTHROPIC_MODEL": DEEPSEEK_MODEL,
         }
         # 先试 resume
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *base, "--resume", sid,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(PIPE_WORK_DIR),
-                env=pipe_env,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=message.encode("utf-8")), timeout=120
-            )
-            if proc.returncode == 0:
+            returncode, stdout, stderr = await self._pipe_process([*base, '--resume', sid], message, pipe_env)
+            if returncode == 0:
                 return stdout.decode("utf-8", errors="replace").strip()
             # resume 失败，可能是会话不存在，尝试 session-id 创建
             err_text = stderr.decode("utf-8", errors="replace")
@@ -564,7 +630,7 @@ class RelayBot:
                 out_text = stdout.decode("utf-8", errors="replace").strip()
                 if not err_text.strip() and not out_text:
                     err_text = "(无输出)"
-                print(f"[管道] resume 错误 (exit {proc.returncode}): stderr={err_text.strip()[:300]}")
+                print(f"[管道] resume 错误 (exit {returncode}): stderr={err_text.strip()[:300]}")
                 if out_text:
                     print(f"[管道] stdout: {out_text[:300]}")
                 return f"（{BOT_NAME}挂机中....）"
@@ -577,23 +643,13 @@ class RelayBot:
 
         # 回退：用 session-id 创建新会话
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *base, "--session-id", sid,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(PIPE_WORK_DIR),
-                env=pipe_env,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=message.encode("utf-8")), timeout=120
-            )
-            if proc.returncode != 0:
+            returncode, stdout, stderr = await self._pipe_process([*base, '--session-id', sid], message, pipe_env)
+            if returncode != 0:
                 err = stderr.decode("utf-8", errors="replace").strip()
                 out = stdout.decode("utf-8", errors="replace").strip()
                 if not err and not out:
                     err = "(无输出)"
-                print(f"[管道] claude 错误 (exit {proc.returncode}): stderr={err[:300]}")
+                print(f"[管道] claude 错误 (exit {returncode}): stderr={err[:300]}")
                 if out:
                     print(f"[管道] stdout: {out[:300]}")
                 return "（出了点问题，等下再试试）"
@@ -1344,44 +1400,64 @@ def start_meme_http_server():
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         print(f"[图床] http://0.0.0.0:{MEME_SERVER_PORT}（容器内通过 host.docker.internal:{MEME_SERVER_PORT} 访问）")
+        return server, t
     except OSError as e:
         print(f"[图床] 启动失败（端口 {MEME_SERVER_PORT} 可能被占）: {e}")
+        raise
+
+
+class ManagedRelay:
+    def __init__(self, config, paths, eventbus):
+        self.config, self.paths, self.eventbus = config, paths, eventbus
+        self.bot = None
+        self.meme_server = None
+
+    async def start(self):
+        configure_runtime(self.config, self.paths)
+        self.bot = RelayBot(self.eventbus)
+        self.meme_server = start_meme_http_server()
+
+    async def run(self, on_connected):
+        await self.bot.run(on_connected)
+
+    async def close(self):
+        try:
+            if self.bot:
+                await self.bot.close()
+        finally:
+            if self.meme_server:
+                server, thread = self.meme_server
+                def stop_server():
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=3)
+                    if thread.is_alive():
+                        raise RuntimeError('图床线程尚未停止')
+                await asyncio.to_thread(stop_server)
+                self.meme_server = None
 
 
 async def main():
-    start_runtime_logging()
-    retry = 3
-
-    # 启动图床服务器（供容器内通过宿主网络读图）
-    start_meme_http_server()
-
-    # 可选启动 WebUI
-    if "--webui" in sys.argv or os.getenv("WEBUI_ENABLED", "").lower() == "true":
+    logs = start_runtime_logging()
+    config = runtime_settings()
+    paths = discover_paths().with_config(config)
+    if '--webui' in sys.argv or config.get('WEBUI_ENABLED', '').lower() == 'true':
+        from webui import serve_managed_webui
+        await serve_managed_webui(paths, auto_start=True)
+        return
+    from relay_control import RelayController
+    paths.check_writable()
+    lock = InstanceLock(paths.data)
+    lock.acquire()
+    controller = RelayController(paths, logs=logs)
+    try:
+        await controller.start()
+        await asyncio.Event().wait()
+    finally:
         try:
-            from webui import EventBus, start_webui
-            eventbus = EventBus()
-            bot = RelayBot(eventbus=eventbus)
-            webui_port = int(os.getenv("WEBUI_PORT", "8800"))
-            webui_host = os.getenv("WEBUI_HOST", "127.0.0.1")
-            asyncio.create_task(start_webui(bot, eventbus, host=webui_host, port=webui_port))
-            print(f"[中繼] WebUI 启动于 http://{webui_host}:{webui_port}")
-        except Exception as e:
-            print(f"[中繼] WebUI 启动失败: {e}")
-            bot = RelayBot()
-    else:
-        bot = RelayBot()
-
-    while True:
-        try:
-            await bot.run()
-        except (websockets.exceptions.ConnectionClosed, OSError) as e:
-            print(f"[中繼] 断开 ({e})，{retry} 秒后重连...")
-            await asyncio.sleep(retry)
-            retry = min(retry + 1, 10)
-        except Exception as e:
-            print(f"[中繼] 异常: {e}")
-            await asyncio.sleep(10)
-            retry = 3
+            await controller.shutdown()
+        finally:
+            lock.close()
 
 
 if __name__ == "__main__":

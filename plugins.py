@@ -20,8 +20,17 @@ import os
 from pathlib import Path
 
 # ===== Config =====
-MEM_DIR = Path(os.getenv("MEM_DIR", str(Path(__file__).parent / "memory")))
-PLUGINS_CONFIG = MEM_DIR / "plugins.json"
+from app_paths import discover_paths
+from env_config import runtime_settings
+
+MEM_DIR = discover_paths().with_config(runtime_settings()).memory
+PLUGINS_CONFIG = MEM_DIR / 'plugins.json'
+
+
+def configure_paths(paths):
+    global MEM_DIR, PLUGINS_CONFIG
+    MEM_DIR = paths.memory
+    PLUGINS_CONFIG = MEM_DIR / 'plugins.json'
 
 
 # ===== Plugin Info =====

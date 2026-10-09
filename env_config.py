@@ -4,8 +4,9 @@ import os
 import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
+from app_paths import discover_paths
 
-ENV_PATH = Path(__file__).parent / '.env'
+ENV_PATH = discover_paths().env
 DEFAULTS = {
     'BOT_NAME': 'QQ Bot',
     'MASTER_QQ': '0',
@@ -23,7 +24,7 @@ DEFAULTS = {
     'WEBUI_PORT': '8800',
 }
 # Capture before relay loads .env so file values are not misreported as OS overrides.
-INHERITED_ENV = {key: os.environ[key] for key in DEFAULTS if key in os.environ}
+INHERITED_ENV = {key: os.environ[key] for key in (*DEFAULTS, 'GROUP_MODE', 'GROUP_VISION', 'FALLBACK_MODE') if key in os.environ}
 SECRET_FIELDS = frozenset({'NAPCAT_TOKEN', 'DEEPSEEK_API_KEY'})
 PORT_FIELDS = frozenset({'MEME_SERVER_PORT', 'WEBUI_PORT'})
 
@@ -37,6 +38,12 @@ def read_env_file(path: Path = ENV_PATH) -> dict:
                 key, value = line.split('=', 1)
                 result[key.strip()] = value.strip()
     return result
+
+
+def runtime_settings(path: Path = ENV_PATH) -> dict:
+    """Re-read saved settings without mutating os.environ; restart sees fresh file values."""
+    return {**DEFAULTS, 'GROUP_MODE': '', 'GROUP_VISION': '', 'FALLBACK_MODE': 'direct',
+            **read_env_file(path), **INHERITED_ENV}
 
 
 def write_env_file(updates: dict, path: Path = ENV_PATH) -> None:

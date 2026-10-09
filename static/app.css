@@ -74,6 +74,15 @@ button:disabled,input:disabled { cursor: not-allowed; opacity: .55; }
 .breadcrumb-separator { padding: 0 12px; color: #9da798; }
 #current-page { color: var(--text-primary); }
 #app-view { max-width: 1440px; margin: auto; }
+.relay-controls { max-width: 1440px; margin: 0 auto 24px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.relay-summary { flex: 1; min-width: min(100%,220px); }
+.relay-summary strong { font-size: 15px; }
+.relay-summary p,.relay-summary details { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.relay-summary details { margin-top: 6px; }
+.relay-summary summary { cursor: pointer; }
+.relay-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+#relay-action-error { width: 100%; color: var(--danger); font-size: 14px; }
+#relay-action-error:empty { display: none; }
 .page-header { margin-bottom: 26px; gap: 20px; flex-wrap: wrap; }
 .page-header h2,.settings-hero h2 { font-size: 28px; font-weight: 650; line-height: 1.4; letter-spacing: -.6px; }
 .page-header p,.settings-hero p { color: var(--text-secondary); font-size: 14px; margin-top: 6px; }

@@ -129,6 +129,10 @@ function handleWSEvent(event) {
         case 'manual_send':
             addFeedItem({ gid: data.gid, nick: 'WebUI', text: data.text, _type: 'manual', _time: new Date().toISOString() });
             break;
+        case 'relay_state':
+            applyRelayStatus({managed: true, ...data});
+            fetchStatus(); fetchGroups(); fetchPipeState();
+            break;
         case 'ping': break;
     }
 }
@@ -798,9 +802,9 @@ const SETTINGS_SECTIONS = [
         ['DEEPSEEK_MODEL', '模型名称', '填写服务商支持的准确模型 ID。读图需要模型支持图像输入。'],
         ['DEEPSEEK_API_KEY', 'API Key', '仅发送到本机配置接口，保存在本机 .env 中，不是加密存储。', 'secret'],
     ] },
-    { title: '高级设置', description: '路径、端口与启动选项。更改目录不会自动搬迁现有数据。', advanced: true, fields: [
+    { title: '高级设置', description: '相对路径以数据根目录为准，不随启动位置改变。更改目录不会自动搬迁现有数据。', advanced: true, fields: [
         ['CLAUDE_CMD', 'Claude CLI 程序', '管道模式使用。可填 claude.cmd 或完整程序路径，不要填写整段启动命令。'],
-        ['MEM_DIR', '数据目录', '知识库、对话与插件数据的位置。相对路径按启动时的工作目录解析。'],
+        ['MEM_DIR', '数据目录', '知识库、对话与插件数据的位置。相对路径按上方“数据位置”中的配置根目录解析。'],
         ['PIPE_ADD_DIR', '管道工作目录', '这是 Claude 可读取的目录；不要指向私人文档或整个磁盘。'],
         ['MEME_SERVER_PORT', '图床端口', '取值 1–65535，不能与 WebUI 端口相同。', 'port'],
         ['WEBUI_HOST', 'WebUI 监听地址', '仅允许回环 IP 或 localhost；当前管理界面没有登录鉴权。'],
@@ -811,7 +815,7 @@ const SETTINGS_SECTIONS = [
 
 async function renderSettings() {
     const view = $('#app-view');
-    view.innerHTML = '<div class="page-header"><h2>连接与配置</h2><p>配置保存在本机 .env，保存后重启中继生效。</p></div><div id="settings-loading" class="loading" role="status">正在读取配置…</div>';
+    view.innerHTML = '<div class="page-header"><h2>连接与配置</h2><p>配置保存在本机 .env。机器人配置可用上方按钮重启；WebUI 监听地址、端口和日志目录需重开整个控制台。</p></div><div id="settings-loading" class="loading" role="status">正在读取配置…</div>';
     const loading = $('#settings-loading');
     let settings;
     try {
@@ -907,7 +911,7 @@ async function renderSettings() {
             form.querySelectorAll('[data-clear-secret]').forEach(input => { input.checked = false; });
             showOverrides(data.environment_overrides);
             result.className = 'settings-result success';
-            result.textContent = data.restart_required ? '已保存。请重启中继后生效；若修改了 WebUI 端口，请使用新端口打开。' : '配置未变化，无需重启。';
+            result.textContent = data.restart_required ? '已保存。请重启中继以应用机器人配置；WebUI 监听地址、端口和日志目录需退出并重开整个控制台。' : '配置未变化，无需重启。';
         } catch (error) {
             if (form.isConnected) { result.className = 'settings-result error'; result.textContent = error.message || '保存失败，请重试'; }
         } finally {
@@ -1085,6 +1089,7 @@ async function init() {
     renderRoute();
     connectWS();
     attachGlobalEvents();
+    initRelayControl();
 
     setInterval(() => {
         if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {

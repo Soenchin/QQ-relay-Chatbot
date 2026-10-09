@@ -9,6 +9,10 @@ export async function startPreview(port = 8812) {
         recent:['小林：这个周末一起开黑吗？','阿青：我晚一点到，先帮我留个位置。','小林：没问题，群里喊你。']}));
     const files = new Map([['群聊说明.md','# 群聊说明\n\n欢迎来到开发讨论群。\n\n## 对话约定\n\n- 分享你正在做的东西\n- 遇到问题，把复现步骤一起贴出来\n- 留一点空间给轻松的聊天\n'],['游戏备忘.md','# 游戏备忘\n\n周末一起开黑。']]);
     let config = {group_mode:{100001:'pipe',100002:'pipe',100003:'pipe',100004:'direct'},fallback_mode:'direct',group_vision:[100001]};
+    let relayPhase = 'running';
+    let failRelay = false;
+    let activeBotName = 'QQ Bot';
+    const relayStatus = () => ({managed:true,state:relayPhase,connected:relayPhase==='running',can_start:['stopped','error'].includes(relayPhase),message:relayPhase==='running'?'已连接 OneBot，正在监听消息':'中继已停止，控制台仍可使用',data_dir:'./QQBotData',memory_dir:'./QQBotData/memory',portable:true});
     let failLogs = false;
     let logSession = 'preview-log-session';
     let logPolls = 0;
@@ -36,7 +40,7 @@ export async function startPreview(port = 8812) {
     const plugins = [{name:'link_summary',desc:'识别群聊中的网页链接，自动整理简短摘要。',default:true,groups:{100001:true}},
         {name:'welcome',desc:'在新成员加入时送上一句欢迎。',default:false,groups:{}}];
     const writes = [];
-    const staticFiles = {'/':'static/index.html','/static/app.css':'static/app.css','/static/ui.js':'static/ui.js','/static/app.js':'static/app.js','/static/logs.js':'static/logs.js','/static/fonts/SourceHanSansSC-VF.woff2':'static/fonts/SourceHanSansSC-VF.woff2'};
+    const staticFiles = {'/':'static/index.html','/static/app.css':'static/app.css','/static/ui.js':'static/ui.js','/static/app.js':'static/app.js','/static/logs.js':'static/logs.js','/static/relay-control.js':'static/relay-control.js','/static/fonts/SourceHanSansSC-VF.woff2':'static/fonts/SourceHanSansSC-VF.woff2'};
     const server = http.createServer(async (req,res) => {
         const url = new URL(req.url,'http://localhost');
         const path = url.pathname;
@@ -59,8 +63,9 @@ export async function startPreview(port = 8812) {
                     return send({lines:rows,cursor:logSequence,session:logSession,reset,gap:false,storage:{directory:'./memory/logs',filename:'relay.log',max_bytes:2097152,backups:1,available:true,error:null}});
                 }
                 if(path==='/api/settings') return send(settingsResponse());
-                if(path==='/api/config') return send({bot_name:'QQ Bot',preview:true});
-                if(path==='/api/status') return send({connected:true,bot_qq:123456,uptime:45360,subscribers:1});
+                if(path==='/api/relay') return send(relayStatus());
+                if(path==='/api/config') return send({bot_name:activeBotName,preview:true});
+                if(path==='/api/status') return send({connected:relayPhase==='running',bot_qq:123456,uptime:relayPhase==='running'?45360:0,subscribers:1});
                 if(path==='/api/groups') return send(groups);
                 if(path==='/api/pipe-state') return send({groups:pipes});
                 if(path==='/api/env-config') return send(config);
@@ -75,6 +80,7 @@ export async function startPreview(port = 8812) {
             let raw=''; for await(const chunk of req) raw+=chunk;
             const body=raw?JSON.parse(raw):{};
             if(path==='/__preview/control') {
+                if('failRelay' in body) failRelay=body.failRelay;
                 if('failLogs' in body) failLogs=body.failLogs;
                 if(body.resetLogs) {logLines.length=0;logSequence=0;logSession+='-restart';addLog('新进程已启动');}
                 if(body.appendLog) addLog(body.appendLog,body.logLevel||'INFO');
@@ -85,6 +91,14 @@ export async function startPreview(port = 8812) {
                 return send({ok:true});
             }
             writes.push({method:req.method,path,body});
+            if(path.startsWith('/api/relay/') && req.method==='POST') {
+                const action=path.split('/').pop();
+                if(!['start','stop','restart'].includes(action)) return send({detail:'未知操作'},404);
+                if(action!=='stop' && failRelay) {relayPhase='error';return send({detail:'模拟启动失败，请检查配置'},409);}
+                relayPhase=action==='stop'?'stopped':'running';
+                if(relayPhase==='running') activeBotName=appSettings.BOT_NAME;
+                return send(relayStatus());
+            }
             if(path==='/api/settings' && req.method==='PUT') {
                 if(failSettings) return send({detail:'模拟配置保存失败，原配置未更新'},500);
                 if(body.values?.WEBUI_HOST==='0.0.0.0') return send({detail:'请检查标出的配置项',errors:{WEBUI_HOST:'只允许本机地址'}},422);

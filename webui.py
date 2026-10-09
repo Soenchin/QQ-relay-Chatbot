@@ -19,7 +19,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app_paths import bootstrap_data_dir, discover_paths, InstanceLock
+
+if __name__ == '__main__':
+    bootstrap_data_dir()
+
 import env_config
+from relay_control import RelayController, RelayControlError
 from runtime_logs import RuntimeLogs, start_runtime_logging
 
 if __name__ == '__main__':
@@ -32,22 +38,7 @@ import plugins as plugin_mod
 # ============ Paths ============
 BOT_NAME = os.getenv("BOT_NAME", "QQ Bot")
 
-MEM_DIR = Path(os.getenv("MEM_DIR", str(Path(__file__).parent / "memory")))
-KNOWLEDGE_DIR = MEM_DIR / "knowledge"
-CONV_DIR = MEM_DIR / "conv"
-PERSONA_FILE = MEM_DIR / "persona.md"
-
-STATIC_DIR = Path(__file__).parent / "static"
-ENV_PATH = Path(__file__).parent / ".env"
-
-
-# ============ .env Helpers ============
-def read_env_file() -> dict:
-    return env_config.read_env_file(ENV_PATH)
-
-
-def write_env_file(updates: dict) -> None:
-    env_config.write_env_file(updates, ENV_PATH)
+ENV_PATH = env_config.ENV_PATH
 
 
 def require_local_settings(request: Request) -> None:
@@ -127,25 +118,88 @@ class EnvConfigUpdate(BaseModel):
 
 
 # ============ FastAPI App ============
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    yield
+def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: RuntimeLogs | None = None,
+               paths=None, managed=False, auto_start=False, runtime_factory=None) -> FastAPI:
+    base = paths or discover_paths()
+    env_file = paths.env if paths else ENV_PATH
+    if base.env != env_file:
+        base = discover_paths(data_dir=env_file.parent)
 
+    def read_env_file():
+        return env_config.read_env_file(env_file)
 
-def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: RuntimeLogs | None = None) -> FastAPI:
-    app = FastAPI(lifespan=lifespan, title=f"{BOT_NAME} Relay WebUI")
+    def write_env_file(updates):
+        env_config.write_env_file(updates, env_file)
 
+    @asynccontextmanager
+    async def lifespan(app):
+        lock = InstanceLock(base.data) if managed else None
+        if lock:
+            base.check_writable()
+            lock.acquire()
+        try:
+            if auto_start and app.state.controller:
+                try:
+                    await app.state.controller.start()
+                except RelayControlError:
+                    pass  # Configuration errors must not prevent opening the console.
+            yield
+        finally:
+            try:
+                if app.state.controller:
+                    await app.state.controller.shutdown()
+            finally:
+                if lock:
+                    lock.close()
+
+    app = FastAPI(lifespan=lifespan, title=f'{BOT_NAME} Relay WebUI')
     app.state.relay_bot = relay_bot
     app.state.eventbus = eventbus or EventBus()
     app.state.log_capture = log_capture if log_capture is not None else start_runtime_logging()
-
-    if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.state.paths = base.with_config(env_config.runtime_settings(env_file))
+    app.state.bot_name = env_config.runtime_settings(env_file)['BOT_NAME']
+    plugin_mod.configure_paths(app.state.paths)
+    app.state.controller = None
+    if managed:
+        def activated(controller):
+            app.state.relay_bot = controller.runtime.bot if controller.runtime else None
+            if controller.config is not None:
+                app.state.paths = controller.paths
+                app.state.bot_name = controller.config['BOT_NAME']
+            plugin_mod.configure_paths(app.state.paths)
+        kwargs = {'factory': runtime_factory} if runtime_factory else {}
+        app.state.controller = RelayController(app.state.paths, app.state.eventbus, app.state.log_capture,
+                                               on_change=activated, **kwargs)
+    if base.static.exists():
+        app.mount('/static', StaticFiles(directory=str(base.static)), name='static')
 
     # ============ Config ============
     @app.get("/api/config")
     async def get_config():
-        return {"bot_name": BOT_NAME}
+        return {'bot_name': app.state.bot_name}
+
+    @app.get('/api/relay')
+    async def relay_status(request: Request):
+        require_local_settings(request)
+        controller = app.state.controller
+        return JSONResponse({'managed': controller is not None,
+                             **(controller.snapshot() if controller else {'state': 'unmanaged'})},
+                            headers={'Cache-Control': 'no-store'})
+
+    @app.post('/api/relay/{action}')
+    async def relay_action(action: str, request: Request):
+        require_local_settings(request)
+        if action not in ('start', 'stop', 'restart'):
+            raise HTTPException(404, '未知的中继操作')
+        controller = app.state.controller
+        if controller is None:
+            raise HTTPException(409, '当前服务未启用中继管理')
+        try:
+            # A closed browser request must not abandon half-started/stopped resources.
+            result = await asyncio.shield(getattr(controller, action)())
+        except RelayControlError as error:
+            raise HTTPException(409, str(error)) from None
+        return JSONResponse({'managed': True, **result}, headers={'Cache-Control': 'no-store'})
 
     # ============ Connection Settings ============
     @app.get('/api/settings')
@@ -156,7 +210,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: Ru
         except (OSError, UnicodeError):
             raise HTTPException(500, '无法读取配置文件，请检查权限和 UTF-8 编码')
         return JSONResponse({**env_config.public_settings(env, env_config.INHERITED_ENV),
-                             'env_exists': ENV_PATH.exists()}, headers={'Cache-Control': 'no-store'})
+                             'env_exists': env_file.exists()}, headers={'Cache-Control': 'no-store'})
 
     @app.put('/api/settings')
     async def update_settings(request: Request):
@@ -267,7 +321,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: Ru
         uptime = 0
         if hasattr(bot, "_start_time"):
             uptime = int(time.time() - bot._start_time)
-        ws_ok = bot.ws is not None and (bot.ws.close_code is None if hasattr(bot.ws, 'close_code') else True)
+        ws_ok = bool(getattr(bot, 'connected', False))
         return {
             "connected": ws_ok,
             "bot_qq": bot.bot_qq,
@@ -318,6 +372,8 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: Ru
         bot = app.state.relay_bot
         if not bot:
             raise HTTPException(404, "机器人未启动")
+        PERSONA_FILE = app.state.paths.persona
+        KNOWLEDGE_DIR = app.state.paths.knowledge
         parts = []
         if PERSONA_FILE.exists():
             text = PERSONA_FILE.read_text(encoding="utf-8").strip()
@@ -455,6 +511,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: Ru
     # ============ Knowledge Base ============
     @app.get("/api/knowledge")
     async def list_knowledge():
+        KNOWLEDGE_DIR = app.state.paths.knowledge
         if not KNOWLEDGE_DIR.exists():
             return []
         files = []
@@ -466,51 +523,55 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: Ru
             })
         return files
 
+    def knowledge_path(filename):
+        if not filename.endswith('.md'):
+            filename += '.md'
+        root = app.state.paths.knowledge.resolve()
+        path = (root / filename).resolve()
+        if '/' in filename or '\\' in filename or not path.is_relative_to(root):
+            raise HTTPException(400, '非法文件名')
+        return path
+
     @app.get("/api/knowledge/{filename}")
     async def get_knowledge(filename: str):
-        if not filename.endswith(".md"):
-            filename += ".md"
-        fpath = KNOWLEDGE_DIR / filename
-        if not fpath.exists() or not fpath.is_relative_to(KNOWLEDGE_DIR):
-            raise HTTPException(404, "文件不存在")
-        return {"name": fpath.name, "content": fpath.read_text(encoding="utf-8")}
+        fpath = knowledge_path(filename)
+        if not fpath.exists():
+            raise HTTPException(404, '文件不存在')
+        return {'name': fpath.name, 'content': fpath.read_text(encoding='utf-8')}
 
     @app.put("/api/knowledge/{filename}")
     async def update_knowledge(filename: str, data: KnowledgeUpdate):
-        if not filename.endswith(".md"):
-            filename += ".md"
-        fpath = KNOWLEDGE_DIR / filename
-        if not fpath.is_relative_to(KNOWLEDGE_DIR):
-            raise HTTPException(400, "非法文件名")
-        KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
-        fpath.write_text(data.content, encoding="utf-8")
+        fpath = knowledge_path(filename)
+        fpath.parent.mkdir(parents=True, exist_ok=True)
+        fpath.write_text(data.content, encoding='utf-8')
         return {"ok": True, "name": fpath.name}
 
     @app.delete("/api/knowledge/{filename}")
     async def delete_knowledge(filename: str):
-        if not filename.endswith(".md"):
-            filename += ".md"
-        fpath = KNOWLEDGE_DIR / filename
-        if not fpath.exists() or not fpath.is_relative_to(KNOWLEDGE_DIR):
-            raise HTTPException(404, "文件不存在")
+        fpath = knowledge_path(filename)
+        if not fpath.exists():
+            raise HTTPException(404, '文件不存在')
         fpath.unlink()
         return {"ok": True, "name": fpath.name}
 
     # ============ Persona ============
     @app.get("/api/persona")
     async def get_persona():
+        PERSONA_FILE = app.state.paths.persona
         if not PERSONA_FILE.exists():
             return {"content": "", "exists": False}
         return {"content": PERSONA_FILE.read_text(encoding="utf-8"), "exists": True}
 
     @app.put("/api/persona")
     async def update_persona(data: PersonaUpdate):
+        PERSONA_FILE = app.state.paths.persona
         PERSONA_FILE.parent.mkdir(parents=True, exist_ok=True)
         PERSONA_FILE.write_text(data.content, encoding="utf-8")
         return {"ok": True}
 
     @app.post("/api/persona/load")
     async def reload_persona():
+        PERSONA_FILE = app.state.paths.persona
         bot = app.state.relay_bot
         if not bot:
             raise HTTPException(404, "机器人未启动")
@@ -582,7 +643,7 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: Ru
     # ============ SPA Entry ============
     @app.get("/")
     async def serve_spa():
-        spa_path = STATIC_DIR / "index.html"
+        spa_path = base.static / 'index.html'
         if spa_path.exists():
             return FileResponse(str(spa_path))
         return {"error": "index.html not found"}
@@ -609,11 +670,24 @@ async def start_webui(bot, eventbus: EventBus, host: str = "127.0.0.1", port: in
     await server.serve()
 
 
-def run_webui_standalone():
-    """Standalone mode (for development testing)"""
-    app = create_app()
+async def serve_managed_webui(paths=None, auto_start=False):
+    paths = paths or discover_paths()
+    config = env_config.runtime_settings(paths.env)
+    # Bind once per console process. Worker restart deliberately does not rebind the UI.
+    host, port = config['WEBUI_HOST'], config['WEBUI_PORT']
+    _, errors = env_config.validate_updates({'values': {'WEBUI_HOST': host, 'WEBUI_PORT': port}}, {}, {})
+    if errors:
+        print('[WebUI] 监听配置无效，使用本机 127.0.0.1:8800 供修复配置')
+        host, port = '127.0.0.1', '8800'
+    app = create_app(paths=paths, managed=True, auto_start=auto_start)
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8800, log_level="info", access_log=False)
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=int(port), log_level='info', access_log=False, ws='websockets'))
+    await server.serve()
+
+
+def run_webui_standalone():
+    """Open the controller without connecting QQ until Start is clicked."""
+    asyncio.run(serve_managed_webui(auto_start='--start' in sys.argv))
 
 
 if __name__ == "__main__":

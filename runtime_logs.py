@@ -222,10 +222,11 @@ def start_runtime_logging(directory=None):
     global _runtime
     if _runtime is None:
         import env_config
+        from app_paths import discover_paths
         saved = env_config.read_env_file()
-        root = Path(os.getenv('MEM_DIR', saved.get('MEM_DIR', str(Path(__file__).parent / 'memory'))))
+        paths = discover_paths().with_config(env_config.runtime_settings())
         values = [source.get(key, '') for source in (saved, os.environ) for key in _SECRET_KEYS]
-        _runtime = RuntimeLogs(directory or root / 'logs', secrets=values)
+        _runtime = RuntimeLogs(directory or paths.logs, secrets=values)
         _runtime.install()
         atexit.register(_runtime.close)
     return _runtime

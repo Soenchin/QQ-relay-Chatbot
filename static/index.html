@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="static/app.css">
     <script src="static/ui.js" defer></script>
     <script src="static/logs.js" defer></script>
+    <script src="static/relay-control.js" defer></script>
     <script src="static/app.js" defer></script>
 </head>
 <body>
@@ -35,6 +36,11 @@
     </aside>
     <main class="main-content" id="content" tabindex="-1">
         <div class="workspace-bar"><span>工作空间 <span class="breadcrumb-separator">/</span> <span id="current-page">仪表盘</span></span><span class="workspace-note">让对话自然发生</span></div>
+        <section class="relay-controls" aria-label="中继启停管理">
+            <div class="relay-summary"><strong id="relay-phase">读取状态中</strong><p id="relay-message" role="status"></p><details><summary>数据位置</summary><p>配置根目录：<span id="relay-data-dir"></span></p><p>知识与对话：<span id="relay-memory-dir"></span></p></details></div>
+            <div class="relay-actions"><button class="btn btn-primary btn-sm" id="relay-start" disabled>启动中继</button><button class="btn btn-outline btn-sm" id="relay-stop" disabled>停止</button><button class="btn btn-outline btn-sm" id="relay-restart" disabled>重启中继</button></div>
+            <p id="relay-action-error" role="alert"></p>
+        </section>
         <div id="app-view"><div class="loading">加载中</div></div>
     </main>
 </body>
