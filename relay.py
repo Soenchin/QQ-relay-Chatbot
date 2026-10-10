@@ -1063,10 +1063,13 @@ class RelayBot:
                     mark = " ".join(parts)
                     at_body = f"{mark} {clean}".strip() if clean else mark
                 if recent_ctx:
-                    if at_body:
-                        speak_prompt = f"以下是群聊上下文（最近 {len(self._pipe_recent[gid])} 条）：\n{recent_ctx}\n\n[{nick}] 艾特了你：{at_body}\n\n每条回复在85字以内。"
-                    else:
-                        speak_prompt = f"以下是群聊上下文（最近 {len(self._pipe_recent[gid])} 条）：\n{recent_ctx}\n\n[{nick}] 叫了你一声\n\n每条回复在85字以内。"
+                    speak_prompt = (
+                        f"以下是群聊上下文（最近 {len(self._pipe_recent[gid])} 条）：\n{recent_ctx}\n\n"
+                        f"[{nick}] 艾特了你\n\n"
+                        "像群友一样直接回应这次艾特：优先给即时反应、接梗、吐槽或顺着话题补一句；有明确问题再简短回答。"
+                        "别总结聊天，别讲大道理，也别硬开新话题。"
+                        "回复通常5到50个字；需要解释时可以多说，但最多100字。可以口语、省略句、短促的两三句话，像真人随手发的消息。"
+                    )
                 else:
                     speak_prompt = f"[{nick}] {at_body}\n\n每条回复在85字以内。" if at_body else f"[{nick}] 有人叫了你一声\n\n每条回复在85字以内。"
                 speak_prompt, vision_paths = self._with_vision_prompt(gid, speak_prompt)
@@ -1084,7 +1087,13 @@ class RelayBot:
                         print(f"[管道] 群 {gid} 窗口为空，跳过主动发言，下次阈值: {self._pipe_thresholds[gid]}")
                     else:
                         should_speak = True
-                        speak_prompt = f"以下是最近群聊记录：\n\n{recent if recent else '(暂无聊天内容)'}\n\n你是群成员，自然接一句，不要太正式。每条回复在85字以内。"
+                        speak_prompt = (
+                            f"以下是最近群聊记录：\n\n{recent if recent else '(暂无聊天内容)'}\n\n"
+                            "你是正在刷群的普通群成员，顺着刚才正在聊的那一句自然插一句。"
+                            "优先给即时反应、接梗、吐槽、补半句话；别总结聊天，别讲大道理，也别硬开新话题。"
+                            "回复通常5到50个字；需要解释时可以多说，但最多100字。可以口语、省略句、短促的两三句话，像真人随手发的消息。"
+                            "不要输出角色名冒号前缀（如 NeoNisch:、**NeoNisch:**、NN:、**NN：**），不要写成剧本台词，不要逐条给整窗聊天配音。"
+                        )
                         speak_prompt, vision_paths = self._with_vision_prompt(gid, speak_prompt)
 
             # === 插件钩子（窗口已更新、计数已累加；在 AI 回复之前） ===
