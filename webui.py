@@ -234,8 +234,14 @@ def create_app(relay_bot=None, eventbus: EventBus | None = None, log_capture: Ru
             if updates:
                 app.state.log_capture.remember_secrets(source.get(key, '') for source in (env, updates) for key in env_config.SECRET_FIELDS)
                 write_env_file(updates)
+            live_applied = []
+            if 'PIPE_GAP_MINUTES' in updates and app.state.relay_bot is not None:
+                effective = env_config.runtime_settings(env_file)
+                app.state.relay_bot.pipe_gap_minutes = int(effective['PIPE_GAP_MINUTES'])
+                live_applied.append('PIPE_GAP_MINUTES')
             return JSONResponse({'ok': True, 'updated': sorted(updates),
-                                 'restart_required': bool(updates),
+                                 'restart_required': bool(set(updates) - set(live_applied)),
+                                 'live_applied': live_applied,
                                  **env_config.public_settings({**env, **updates}, env_config.INHERITED_ENV)},
                                 headers={'Cache-Control': 'no-store'})
         except (OSError, UnicodeError):

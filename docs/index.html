@@ -149,7 +149,7 @@
         <div class="section-head reveal"><div><p class="kicker">TWO MODES</p><h2>两种模式，自由切换。</h2></div><p class="section-copy">按群配置 direct 或 pipe，适配不同的聊天方式。</p></div>
         <div class="mode-grid">
           <article class="mode direct reveal"><span class="mode-tag">DIRECT</span><h3>直调模式</h3><p>面向跑团、工具问答或想保持安静的群。只有 @ 机器人时才请求 API。</p><ul><li>最多 50 条本地对话历史</li><li>主人可用 `!` 管理命令</li><li>响应路径短，行为可预期</li><li>适合作为默认 fallback</li></ul></article>
-          <article class="mode pipe reveal"><span class="mode-tag">PIPE</span><h3>管道模式</h3><p>面向日常聊天群。CLI 会话与最近 30 条消息共同维持语境，4–8 条普通消息后随机接话。</p><ul><li>每群独立 session UUID</li><li>默认只读工具权限</li><li>主人 @ 时才开放写工具</li><li>表情包与图片描述按上下文介入</li></ul></article>
+          <article class="mode pipe reveal"><span class="mode-tag">PIPE</span><h3>管道模式</h3><p>面向日常聊天群。每轮独立调用 CLI，以最近 30 条消息维持语境，4–8 条普通消息后随机接话。</p><ul><li>每群独立窗口，支持时间断点</li><li>默认只读工具权限</li><li>主人 @ 时才开放写工具</li><li>表情包与图片描述按上下文介入</li></ul></article>
         </div>
         <div class="vision-band reveal"><div class="vision-copy"><p class="kicker">GROUP VISION</p><h3>读图模式可控。</h3><p>只给指定的 pipe 群开启。中继会下载、压缩和描述图片，再把短描述写进聊天上下文；超时、超量或出窗图片都会自动清理。</p></div><div class="vision-steps"><div><b>01</b>下载 / get_image 兜底</div><div><b>02</b>压缩与 GIF 首帧</div><div><b>03</b>多模态短描述</div><div><b>04</b>文字进入上下文</div></div></div>
       </section>

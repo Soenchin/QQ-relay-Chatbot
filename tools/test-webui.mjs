@@ -119,6 +119,12 @@ try {
     await route('settings','#settings-form');
     await check(`!document.querySelector('.nav-item[data-view="send"]') && document.querySelector('.nav-item[data-view="settings"]').textContent.includes('连接与配置')`, 'Settings replaces manual-send navigation');
     await check(`document.querySelector('#setting-DEEPSEEK_API_KEY').value==='' && document.querySelector('#setting-DEEPSEEK_API_KEY').type==='password' && document.querySelector('#setting-DEEPSEEK_API_KEY').placeholder.includes('已配置')`, 'Secret inputs are blank and only show presence');
+    await check(`document.querySelector('#setting-PIPE_GAP_MINUTES').value==='5' && document.querySelector('#setting-PIPE_GAP_MINUTES').type==='number' && document.querySelector('#setting-PIPE_GAP_MINUTES').min==='1' && document.querySelector('#setting-PIPE_GAP_MINUTES').max==='120'`, 'Gap interval defaults and numeric bounds match backend');
+    await evaluate(`document.querySelector('#setting-PIPE_GAP_MINUTES').value='12';document.querySelector('#settings-form').requestSubmit()`);
+    await waitFor(()=>evaluate(`document.querySelector('#settings-result').textContent.includes('已即时应用，无需重启')`),'gap interval live apply');
+    const gapWrites=(await(await fetch(preview.url+'/__preview/writes')).json()).filter(w=>w.path==='/api/settings');
+    assert.deepEqual(gapWrites.at(-1).body,{values:{PIPE_GAP_MINUTES:'12'},clear_secrets:[]});
+    results.push('Gap interval saves only changed field and reports live apply without restart');
     await shot('settings-desktop');
     await evaluate(`document.querySelector('#setting-BOT_NAME').value='预览机器人';document.querySelector('#settings-form').requestSubmit()`);
     await waitFor(()=>evaluate(`document.querySelector('#settings-result').textContent.includes('请重启中继')`),'settings save');

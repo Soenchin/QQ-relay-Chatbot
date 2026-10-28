@@ -802,6 +802,9 @@ const SETTINGS_SECTIONS = [
         ['DEEPSEEK_MODEL', '模型名称', '填写服务商支持的准确模型 ID。读图需要模型支持图像输入。'],
         ['DEEPSEEK_API_KEY', 'API Key', '仅发送到本机配置接口，保存在本机 .env 中，不是加密存储。', 'secret'],
     ] },
+    { title: '发言节奏', description: '相邻消息达到指定间隔时，在上下文中插入时间断点；断点不会清空之前的消息。', fields: [
+        ['PIPE_GAP_MINUTES', '断点间隔（分钟）', '取值 1–120，默认 5。中继运行时保存后立即生效。', 'gap'],
+    ] },
     { title: '高级设置', description: '相对路径以数据根目录为准，不随启动位置改变。更改目录不会自动搬迁现有数据。', advanced: true, fields: [
         ['CLAUDE_CMD', 'Claude CLI 程序', '管道模式使用。可填 claude.cmd 或完整程序路径，不要填写整段启动命令。'],
         ['MEM_DIR', '数据目录', '知识库、对话与插件数据的位置。相对路径按上方“数据位置”中的配置根目录解析。'],
@@ -830,9 +833,10 @@ async function renderSettings() {
         const value = settings.values[key] ?? '';
         const secret = kind === 'secret';
         const configured = settings.secrets[key]?.configured;
+        const numeric = kind === 'port' || kind === 'gap';
         const control = kind === 'boolean'
             ? `<select id="setting-${key}" name="${key}" aria-describedby="help-${key} error-${key}"><option value="true" ${value === 'true' ? 'selected' : ''}>开启</option><option value="false" ${value === 'false' ? 'selected' : ''}>关闭</option></select>`
-            : `<input id="setting-${key}" name="${key}" type="${secret ? 'password' : kind === 'port' ? 'number' : 'text'}" value="${secret ? '' : escapeHtml(value)}" ${secret ? 'autocomplete="new-password"' : 'autocomplete="off" required'} ${kind === 'port' ? 'min="1" max="65535" step="1"' : 'maxlength="4096"'} ${key === 'MASTER_QQ' ? 'inputmode="numeric" pattern="[0-9]{1,20}"' : ''} aria-describedby="help-${key} error-${key}" ${secret ? `placeholder="${configured ? '已配置，留空保留原值' : '尚未配置'}"` : ''}>`;
+            : `<input id="setting-${key}" name="${key}" type="${secret ? 'password' : numeric ? 'number' : 'text'}" value="${secret ? '' : escapeHtml(value)}" ${secret ? 'autocomplete="new-password"' : 'autocomplete="off" required'} ${kind === 'port' ? 'min="1" max="65535" step="1"' : kind === 'gap' ? 'min="1" max="120" step="1"' : 'maxlength="4096"'} ${key === 'MASTER_QQ' ? 'inputmode="numeric" pattern="[0-9]{1,20}"' : ''} aria-describedby="help-${key} error-${key}" ${secret ? `placeholder="${configured ? '已配置，留空保留原值' : '尚未配置'}"` : ''}>`;
         return `<div class="form-group settings-field"><label for="setting-${key}">${label}${secret ? `<span class="secret-presence">${configured ? '已配置 · 不回显' : '未配置'}</span>` : ''}</label>${control}
             <p id="help-${key}" class="field-help">${help}</p>${secret ? `<label class="clear-secret"><input type="checkbox" data-clear-secret="${key}">清除已保存的${label}（保存后生效）</label>` : ''}
             <p id="error-${key}" class="field-error" aria-live="polite"></p></div>`;
@@ -843,7 +847,7 @@ async function renderSettings() {
             : `<section class="settings-card connection-section"><h3>${section.title}</h3>${content}</section>`;
     }).join('');
     loading.outerHTML = `<form id="settings-form" autocomplete="off">
-        <div class="settings-notice">${settings.env_exists ? '编辑的是下次启动配置，不代表当前进程已应用。' : '尚未创建 .env，保存后会创建初始配置文件。'} 群模式和读图开关仍在 <a href="#/group-config">群设置</a> 中管理。</div>
+        <div class="settings-notice">${settings.env_exists ? '断点间隔在中继运行时可即时应用，其他配置通常需重启。' : '尚未创建 .env，保存后会创建初始配置文件。'} 群模式和读图开关仍在 <a href="#/group-config">群设置</a> 中管理。</div>
         <div id="settings-overrides" class="settings-notice" ${settings.environment_overrides.length ? '' : 'hidden'}></div>
         <fieldset id="settings-fields">${sections}
             <div class="settings-save-bar"><div><strong>保存到本机 .env</strong><span>不会自动重启、连接 QQ 或测试付费 API。留空的密钥不会被清除。</span></div><button type="submit" class="btn btn-primary" id="settings-save">${uiIcon('save')} 保存配置</button></div>
@@ -911,7 +915,10 @@ async function renderSettings() {
             form.querySelectorAll('[data-clear-secret]').forEach(input => { input.checked = false; });
             showOverrides(data.environment_overrides);
             result.className = 'settings-result success';
-            result.textContent = data.restart_required ? '已保存。请重启中继以应用机器人配置；WebUI 监听地址、端口和日志目录需退出并重开整个控制台。' : '配置未变化，无需重启。';
+            const liveApplied = data.live_applied?.includes('PIPE_GAP_MINUTES');
+            result.textContent = data.restart_required
+                ? `${liveApplied ? '已保存，断点间隔已即时应用。' : '已保存。'}请重启中继以应用其他配置；WebUI 监听地址、端口和日志目录需退出并重开整个控制台。`
+                : liveApplied ? '已保存，断点间隔已即时应用，无需重启。' : '配置未变化，无需重启。';
         } catch (error) {
             if (form.isConnected) { result.className = 'settings-result error'; result.textContent = error.message || '保存失败，请重试'; }
         } finally {

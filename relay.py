@@ -70,9 +70,8 @@ else:
 FALLBACK_MODE = os.getenv("FALLBACK_MODE", "direct")
 PIPE_GROUPS = [gid for gid, mode in GROUP_MODE.items() if mode == "pipe"]
 
-# 管道群 session UUID（用群号生成固定 UUID，每个群独立）
-def pipe_session_id(gid: int) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"qq-group-{gid}"))
+# 相邻消息达到此间隔时插入时间断点；不清空窗口。
+PIPE_GAP_MINUTES = 5
 
 # 管道进程配置
 CLAUDE_CMD = os.getenv("CLAUDE_CMD", "claude")
@@ -122,6 +121,7 @@ VISION_READ_MAX = 3
 IMAGE_COMPRESS_BYTES = int(1.5 * 1024 * 1024)
 IMAGE_MAX_SIDE = 1280
 CQ_IMAGE_RE = re.compile(r"\[CQ:image,([^\]]*)\]", re.IGNORECASE)
+CQ_REPLY_RE = re.compile(r"\[CQ:reply,([^\]]*)\]", re.IGNORECASE)
 # 中继侧 vision 描述后塞进窗口；管道只吃文字，不再要求 CLI Read 图片
 VISION_CAPTION_MAX = 80
 
@@ -129,7 +129,7 @@ VISION_CAPTION_MAX = 80
 def configure_runtime(config, paths):
     """Legacy helpers share one active configuration; controller stops it before replacing it."""
     global WS_URL, TOKEN, DEEPSEEK_API_KEY, DEEPSEEK_BASE, DEEPSEEK_MODEL, BOT_NAME, MASTER_QQ
-    global GROUP_MODE, FALLBACK_MODE, PIPE_GROUPS, GROUP_VISION, CLAUDE_CMD
+    global GROUP_MODE, FALLBACK_MODE, PIPE_GROUPS, GROUP_VISION, CLAUDE_CMD, PIPE_GAP_MINUTES
     global PIPE_ADD_DIR, PIPE_WORK_DIR, MEM_DIR, PERSONA_FILE, KNOWLEDGE_DIR, MEMORY_DIR
     global MEME_DIR, MEME_ARCHIVE_DIR, MEME_UNSORTED_DIR, MEME_SERVER_PORT, MEME_PROMPT_EXTRA, INBOX_DIR
     WS_URL, TOKEN = config['NAPCAT_WS_URL'], config['NAPCAT_TOKEN']
@@ -140,6 +140,7 @@ def configure_runtime(config, paths):
     PIPE_GROUPS = [gid for gid, mode in GROUP_MODE.items() if mode == 'pipe']
     GROUP_VISION = {int(gid) for gid in json.loads(config.get('GROUP_VISION') or '[]')}
     CLAUDE_CMD = config['CLAUDE_CMD']
+    PIPE_GAP_MINUTES = int(config.get('PIPE_GAP_MINUTES', '5'))
     PIPE_ADD_DIR = PIPE_WORK_DIR = paths.pipe
     MEM_DIR, PERSONA_FILE, KNOWLEDGE_DIR = paths.memory, paths.persona, paths.knowledge
     MEMORY_DIR = paths.memory / 'memory'
@@ -394,6 +395,9 @@ class RelayBot:
         self.bot_qq = None
         self.http = None
         self._api_futures = {}  # echo -> Future，OneBot 同步调用
+        self._sent_message_ids = {}  # {gid: set[str]}，用于识别回复机器人
+        self._sent_message_queues = {}
+        self._sent_message_max = 100
         self.eventbus = eventbus
         self._start_time = time.time()
         self.persona = load_persona()
@@ -414,8 +418,10 @@ class RelayBot:
         self._pipe_thresholds = {} # {gid: 触发阈值}
         self._pipe_locks = {}      # {gid: asyncio.Lock} 串行排队
         self._pipe_recent = {}     # {gid: deque(maxlen=30)} 最近消息滑动窗口（字符串）
+        self._pipe_ts = {}         # 与窗口平行的到达时间，用于渲染时间断点
         # 与 _pipe_recent 平行：每条窗口消息对应的 inbox 相对路径列表（用于出窗删除）
         self._pipe_recent_imgs = {}  # {gid: deque(maxlen=30) of list[str]}
+        self.pipe_gap_minutes = PIPE_GAP_MINUTES
         self._init_pipe_threshold = lambda: random.randint(4, 8)
         INBOX_DIR.mkdir(parents=True, exist_ok=True)
         for gid in self.PIPE_GROUPS:
@@ -423,6 +429,7 @@ class RelayBot:
             self._pipe_thresholds[gid] = self._init_pipe_threshold()
             self._pipe_locks[gid] = asyncio.Lock()
             self._pipe_recent[gid] = deque(maxlen=30)
+            self._pipe_ts[gid] = deque(maxlen=30)
             self._pipe_recent_imgs[gid] = deque(maxlen=30)
             (INBOX_DIR / str(gid)).mkdir(parents=True, exist_ok=True)
 
@@ -468,6 +475,42 @@ class RelayBot:
             old = self._seen_queue.popleft()
             self._seen_ids.remove(old)
         return False
+
+    def _remember_sent_message_id(self, gid: int, message_id):
+        """按群保存有界消息 ID，识别 CQ:reply 和结构化回复。"""
+        if message_id is None:
+            return
+        mid = str(message_id).strip()
+        if not mid:
+            return
+        ids = self._sent_message_ids.setdefault(gid, set())
+        queue = self._sent_message_queues.setdefault(gid, deque())
+        if mid in ids:
+            return
+        if len(queue) >= self._sent_message_max:
+            ids.discard(queue.popleft())
+        queue.append(mid)
+        ids.add(mid)
+
+    def _reply_target_id(self, text: str, event: dict | None = None) -> str | None:
+        if event and isinstance(event.get('message'), list):
+            for segment in event['message']:
+                if not isinstance(segment, dict) or segment.get('type') != 'reply':
+                    continue
+                data = segment.get('data') or {}
+                target = data.get('id') or data.get('message_id')
+                if target is not None and str(target).strip():
+                    return str(target).strip()
+        for match in CQ_REPLY_RE.finditer(text or ''):
+            params = _parse_cq_params(match.group(1))
+            target = params.get('id') or params.get('message_id')
+            if target and str(target).strip():
+                return str(target).strip()
+        return None
+
+    def _is_reply_to_bot(self, gid: int, text: str, event: dict | None = None) -> bool:
+        target = self._reply_target_id(text, event)
+        return bool(target and target in self._sent_message_ids.get(gid, set()))
 
     # ------- 对话历史 -------
     def _conv_path(self, gid):
@@ -580,6 +623,10 @@ class RelayBot:
 
             if mt == "group":
                 gid = data.get("group_id")
+                if str(uid) == str(self.bot_qq):
+                    self._remember_sent_message_id(gid, data.get('message_id'))
+                    # 回复已在发送路径写入窗口，回声仅登记 ID，避免重复及自触发。
+                    return
                 text = data.get("raw_message", "").strip()
                 sender = data.get("sender", {})
                 nick = sender.get("card") or sender.get("nickname") or str(uid)
@@ -604,62 +651,43 @@ class RelayBot:
 
     # ------- 管道调用 -------
     async def _call_pipe(self, gid: int, message: str, allowed_tools: str | None = None) -> str:
-        """先尝试 --resume 续接已有会话，失败则 --session-id 创建新会话"""
-        sid = pipe_session_id(gid)
+        """每轮独立调用，不持久化 CLI 会话；群聊上下文由窗口提供。"""
         tools = allowed_tools or PIPE_ALLOWED_TOOLS
-        base = [
-            CLAUDE_CMD, "--bare", "-p",
-            "--add-dir", str(PIPE_ADD_DIR),
-            "--allowedTools", tools,
-            "--system-prompt", self.pipe_persona,
+        args = [
+            CLAUDE_CMD, '--bare', '-p', '--no-session-persistence',
+            '--add-dir', str(PIPE_ADD_DIR),
+            '--allowedTools', tools,
+            '--system-prompt', self.pipe_persona,
         ]
-        # 子进程环境变量：注入 DeepSeek API 认证
         pipe_env = {**os.environ,
-            "ANTHROPIC_AUTH_TOKEN": DEEPSEEK_API_KEY,
-            "ANTHROPIC_BASE_URL": DEEPSEEK_BASE,
-            "ANTHROPIC_MODEL": DEEPSEEK_MODEL,
+            'ANTHROPIC_AUTH_TOKEN': DEEPSEEK_API_KEY,
+            'ANTHROPIC_BASE_URL': DEEPSEEK_BASE,
+            'ANTHROPIC_MODEL': DEEPSEEK_MODEL,
         }
-        # 先试 resume
         try:
-            returncode, stdout, stderr = await self._pipe_process([*base, '--resume', sid], message, pipe_env)
-            if returncode == 0:
-                return stdout.decode("utf-8", errors="replace").strip()
-            # resume 失败，可能是会话不存在，尝试 session-id 创建
-            err_text = stderr.decode("utf-8", errors="replace")
-            if "does not exist" not in err_text and "not found" not in err_text.lower():
-                out_text = stdout.decode("utf-8", errors="replace").strip()
-                if not err_text.strip() and not out_text:
-                    err_text = "(无输出)"
-                print(f"[管道] resume 错误 (exit {returncode}): stderr={err_text.strip()[:300]}")
-                if out_text:
-                    print(f"[管道] stdout: {out_text[:300]}")
-                return f"（{BOT_NAME}挂机中....）"
+            returncode, stdout, stderr = await self._pipe_process(args, message, pipe_env)
         except FileNotFoundError:
-            print("[管道] claude 命令未找到")
-            return "（CLI 还没配好）"
-        except (asyncio.TimeoutError, Exception) as e:
-            print(f"[管道] resume 异常: {e}")
-            return "（正在走神，过会再来）"
-
-        # 回退：用 session-id 创建新会话
-        try:
-            returncode, stdout, stderr = await self._pipe_process([*base, '--session-id', sid], message, pipe_env)
-            if returncode != 0:
-                err = stderr.decode("utf-8", errors="replace").strip()
-                out = stdout.decode("utf-8", errors="replace").strip()
-                if not err and not out:
-                    err = "(无输出)"
-                print(f"[管道] claude 错误 (exit {returncode}): stderr={err[:300]}")
-                if out:
-                    print(f"[管道] stdout: {out[:300]}")
-                return "（出了点问题，等下再试试）"
-            return stdout.decode("utf-8", errors="replace").strip()
+            print('[管道] claude 命令未找到')
+            return '（CLI 还没配好）'
         except asyncio.TimeoutError:
-            print(f"[管道] claude 超时 (gid={gid})")
-            return "（正在走神，过会再来）"
-        except Exception as e:
-            print(f"[管道] 异常: {e}")
-            return ""
+            print(f'[管道] claude 超时 (gid={gid})')
+            return '（正在走神，过会再来）'
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            print(f'[管道] 异常: {error}')
+            return ''
+
+        out_text = stdout.decode('utf-8', errors='replace').strip()
+        if returncode == 0:
+            return out_text
+        err_text = stderr.decode('utf-8', errors='replace').strip()
+        if not err_text and not out_text:
+            err_text = '(无输出)'
+        print(f'[管道] claude 错误 (exit {returncode}): stderr={err_text[:300]}')
+        if out_text:
+            print(f'[管道] stdout: {out_text[:300]}')
+        return f'（{BOT_NAME}挂机中....）'
 
 
     async def call_api(self, action: str, params: dict | None = None, timeout: float = 15.0) -> dict:
@@ -690,6 +718,8 @@ class RelayBot:
             self._pipe_recent[gid] = deque(maxlen=30)
         if gid not in self._pipe_recent_imgs:
             self._pipe_recent_imgs[gid] = deque(maxlen=30)
+        if gid not in self._pipe_ts:
+            self._pipe_ts[gid] = deque(maxlen=30)
         if gid not in self._pipe_counters:
             self._pipe_counters[gid] = 0
         if gid not in self._pipe_thresholds:
@@ -723,6 +753,7 @@ class RelayBot:
             self._delete_inbox_paths(list(old_imgs))
         recent.append(line)
         recent_imgs.append(imgs)
+        self._pipe_ts[gid].append(datetime.now())
 
     def _cleanup_inbox_group(self, gid: int):
         """每群最多 5 张图 + 30 分钟过期；同名 .txt 描述随图删除。"""
@@ -1005,6 +1036,53 @@ class RelayBot:
         return speak_prompt + hint, ["caption"]
 
 
+    def _fmt_window(self, gid: int) -> str:
+        """仅在消息间隔处插入时间断点，不给每条消息加时间，也不清空窗口。"""
+        lines = list(self._pipe_recent.get(gid, []))
+        stamps = list(self._pipe_ts.get(gid, []))
+        gap_minutes = max(1, int(self.pipe_gap_minutes))
+        out = []
+        previous = None
+        for line, stamp in zip(lines, stamps):
+            if previous is not None:
+                minutes = int((stamp - previous).total_seconds() // 60)
+                if minutes >= gap_minutes:
+                    if minutes >= 60:
+                        span = f'{minutes // 60} 小时'
+                        if minutes % 60:
+                            span += f' {minutes % 60} 分钟'
+                    else:
+                        span = f'{minutes} 分钟'
+                    if stamp.date() != previous.date():
+                        span += f"，{stamp.strftime('%m-%d %H:%M')}"
+                    out.append(f'--- 隔 {span} ---')
+            out.append(line)
+            previous = stamp
+        return '\n'.join(out)
+
+    def _build_speak_prompt(self, gid: int, anchor: str, anchor_line: str | None = None):
+        now = datetime.now()
+        weekday = '一二三四五六日'[now.weekday()]
+        if anchor == 'at':
+            anchor_text = (
+                '锚点：本次触发消息是冲你说的。就针对他说的事给反应或答案，别跑去接别的话题。'
+                f'\n本次触发消息：\n{anchor_line}'
+            )
+        else:
+            anchor_text = (
+                '锚点：从上面这几条里自己挑一个点插进去。挑最近三到五条里还在热的话题，'
+                '或者有人抛了没人接的那句；别接已经聊完的，别接你自己刚说过的。'
+            )
+        prompt = (
+            f"现在 {now.strftime('%Y-%m-%d %H:%M')}（周{weekday}）\n\n"
+            f'{self._fmt_window(gid)}\n\n'
+            f'{anchor_text}\n\n'
+            '通常 5~50 字，最多 100 字。口语、省略、可以带情绪。\n'
+            '别总结聊天，别讲道理，别开新话题。\n'
+            '时间只用来判断该不该接、接得多紧凑，不要主动评论时间。'
+        )
+        return self._with_vision_prompt(gid, prompt)
+
     async def on_group_msg(self, gid: int, uid: int, nick: str, text: str, event: dict | None = None):
         # 发布消息事件到 WebUI
         await self.publish_event({
@@ -1021,7 +1099,8 @@ class RelayBot:
 
         mode = GROUP_MODE.get(gid, FALLBACK_MODE)
         at_tag = f"[CQ:at,qq={self.bot_qq}]"
-        is_at = at_tag in text
+        is_reply = self._is_reply_to_bot(gid, text, event)
+        is_at = at_tag in text or is_reply
 
         if mode == "pipe":
             # === 管道群（聊天群 / 测试群） ===
@@ -1031,10 +1110,6 @@ class RelayBot:
             if text.startswith("!"):
                 return
 
-            # 去 @ 后的干净文本
-            clean = text.replace(at_tag, "").strip() if is_at else text
-            clean = strip_cq_images(clean)
-
             # 读图开启时：消息到达即落盘，并中继侧 vision 出描述（@ / 普通消息都下）
             image_rels: list[str] = []
             captions: dict[str, str] = {}
@@ -1043,58 +1118,12 @@ class RelayBot:
                 if image_rels:
                     captions = await self._captions_for_images(image_rels)
 
-            should_speak = False
-            speak_prompt = ""
-            vision_paths: list[str] = []
             current_line = self._format_pipe_line(nick, text, image_rels, captions)
-
-            if is_at:
-                should_speak = True
-                # @ 也写入窗口，方便“刚才那张图”类追问
-                self._append_pipe_recent(gid, current_line, image_rels)
-                recent_ctx = "\n".join(self._pipe_recent[gid])
-                at_body = clean
-                if image_rels:
-                    # 与窗口一致：优先描述
-                    parts = []
-                    for p in image_rels:
-                        cap = (captions.get(p) or "").strip()
-                        parts.append(f"[图片描述: {cap}]" if cap else "[图片]")
-                    mark = " ".join(parts)
-                    at_body = f"{mark} {clean}".strip() if clean else mark
-                if recent_ctx:
-                    speak_prompt = (
-                        f"以下是群聊上下文（最近 {len(self._pipe_recent[gid])} 条）：\n{recent_ctx}\n\n"
-                        f"[{nick}] 艾特了你\n\n"
-                        "像群友一样直接回应这次艾特：优先给即时反应、接梗、吐槽或顺着话题补一句；有明确问题再简短回答。"
-                        "别总结聊天，别讲大道理，也别硬开新话题。"
-                        "回复通常5到50个字；需要解释时可以多说，但最多100字。可以口语、省略句、短促的两三句话，像真人随手发的消息。"
-                    )
-                else:
-                    speak_prompt = f"[{nick}] {at_body}\n\n每条回复在85字以内。" if at_body else f"[{nick}] 有人叫了你一声\n\n每条回复在85字以内。"
-                speak_prompt, vision_paths = self._with_vision_prompt(gid, speak_prompt)
-            else:
-                # 记录到滑动窗口（出窗时删对应 inbox 图）
-                self._append_pipe_recent(gid, current_line, image_rels)
-                # 主动发言计数
+            self._append_pipe_recent(gid, current_line, image_rels)
+            should_speak = is_at
+            if not is_at:
                 self._pipe_counters[gid] += 1
-                if self._pipe_counters[gid] >= self._pipe_thresholds[gid]:
-                    recent = "\n".join(self._pipe_recent[gid])
-                    if not recent.strip():
-                        # 窗口为空，跳过本次触发
-                        self._pipe_counters[gid] = 0
-                        self._pipe_thresholds[gid] = self._init_pipe_threshold()
-                        print(f"[管道] 群 {gid} 窗口为空，跳过主动发言，下次阈值: {self._pipe_thresholds[gid]}")
-                    else:
-                        should_speak = True
-                        speak_prompt = (
-                            f"以下是最近群聊记录：\n\n{recent if recent else '(暂无聊天内容)'}\n\n"
-                            "你是正在刷群的普通群成员，顺着刚才正在聊的那一句自然插一句。"
-                            "优先给即时反应、接梗、吐槽、补半句话；别总结聊天，别讲大道理，也别硬开新话题。"
-                            "回复通常5到50个字；需要解释时可以多说，但最多100字。可以口语、省略句、短促的两三句话，像真人随手发的消息。"
-                            "不要输出角色名冒号前缀（如 NeoNisch:、**NeoNisch:**、NN:、**NN：**），不要写成剧本台词，不要逐条给整窗聊天配音。"
-                        )
-                        speak_prompt, vision_paths = self._with_vision_prompt(gid, speak_prompt)
+                should_speak = self._pipe_counters[gid] >= self._pipe_thresholds[gid]
 
             # === 插件钩子（窗口已更新、计数已累加；在 AI 回复之前） ===
             if await plugins.run_plugins(self, gid, uid, nick, text, is_at):
@@ -1104,25 +1133,28 @@ class RelayBot:
                 # 确认 AI 真要发言了再消费计数（避免插件抢话后计数器被吞）
                 self._pipe_counters[gid] = 0
                 self._pipe_thresholds[gid] = self._init_pipe_threshold()
-                print(f"[管道] 群 {gid} {'@触发' if is_at else '主动发言'}，下次阈值: {self._pipe_thresholds[gid]}")
+                trigger_label = '回复触发' if is_reply else ('@触发' if is_at else '主动发言')
+                print(f"[管道] 群 {gid} {trigger_label}，下次阈值: {self._pipe_thresholds[gid]}")
                 await self.publish_event({
                     "type": "pipe_trigger",
                     "data": {"gid": gid, "threshold": self._pipe_thresholds[gid]}
                 })
-                # 50% 概率带表情包指令；本轮要读群图时禁用，避免“不要聊图”打架
-                if (not vision_paths) and random.random() < 0.5:
-                    speak_prompt = "\n".join([speak_prompt, MEME_PROMPT_EXTRA])
-                # 只有主人 @ 触发才给写权限，其他情况（别人 @ / 主动发言）只能读
+                # 排队完成后再取窗口；发送和回写也串行，下一轮才能看到本轮回复。
                 pipe_tools = PIPE_ALLOWED_TOOLS_ADMIN if (is_at and uid == MASTER_QQ) else PIPE_ALLOWED_TOOLS
                 async with self._pipe_locks[gid]:
+                    speak_prompt, vision_paths = self._build_speak_prompt(
+                        gid, 'at' if is_at else 'active', current_line if is_at else None)
+                    # 保留 Git 版表情包概率和读图互斥规则。
+                    if (not vision_paths) and random.random() < 0.5:
+                        speak_prompt = '\n'.join([speak_prompt, MEME_PROMPT_EXTRA])
                     reply = await self._call_pipe(gid, speak_prompt, allowed_tools=pipe_tools)
-                if reply:
-                    await self.send_group(gid, reply)
-                    self._append_pipe_recent(gid, f"[{BOT_NAME}] {reply}", [])
-                    await self.publish_event({
-                        "type": "reply",
-                        "data": {"gid": gid, "text": reply, "mode": "pipe", "is_at": is_at}
-                    })
+                    if reply:
+                        await self.send_group(gid, reply)
+                        self._append_pipe_recent(gid, f"[{BOT_NAME}] {reply}", [])
+                        await self.publish_event({
+                            "type": "reply",
+                            "data": {"gid": gid, "text": reply, "mode": "pipe", "is_at": is_at}
+                        })
 
         else:
             # === 直调群（跑团群 / 未知） ===

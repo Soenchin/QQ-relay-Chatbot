@@ -32,7 +32,7 @@ export async function startPreview(port = 8812) {
     let appSettings = {
         BOT_NAME:'QQ Bot', MASTER_QQ:'0', NAPCAT_WS_URL:'ws://127.0.0.1:3001',
         DEEPSEEK_BASE_URL:'https://api.deepseek.com/anthropic', DEEPSEEK_MODEL:'deepseek-v4-flash',
-        CLAUDE_CMD:'claude.cmd', MEM_DIR:'./memory', PIPE_ADD_DIR:'./memory',
+        CLAUDE_CMD:'claude.cmd', MEM_DIR:'./memory', PIPE_ADD_DIR:'./memory', PIPE_GAP_MINUTES:'5',
         MEME_SERVER_PORT:'8801', WEBUI_ENABLED:'true', WEBUI_HOST:'127.0.0.1', WEBUI_PORT:'8800',
     };
     const secretPresence = {DEEPSEEK_API_KEY:{configured:true},NAPCAT_TOKEN:{configured:true}};
@@ -107,7 +107,10 @@ export async function startPreview(port = 8812) {
                     else appSettings[key]=value;
                 }
                 for(const key of body.clear_secrets||[]) if(key in secretPresence) secretPresence[key]={configured:false};
-                return send({...settingsResponse(),ok:true,updated:Object.keys(body.values||{}),restart_required:true});
+                const updated=Object.keys(body.values||{});
+                const liveApplied=relayPhase==='running' && updated.includes('PIPE_GAP_MINUTES') ? ['PIPE_GAP_MINUTES'] : [];
+                return send({...settingsResponse(),ok:true,updated,live_applied:liveApplied,
+                    restart_required:updated.some(key=>!liveApplied.includes(key))});
             }
             if(path.startsWith('/api/knowledge/')) {
                 const name=decodeURIComponent(path.slice('/api/knowledge/'.length));

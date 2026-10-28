@@ -18,6 +18,7 @@ DEFAULTS = {
     'CLAUDE_CMD': 'claude.cmd' if os.name == 'nt' else 'claude',
     'MEM_DIR': './memory',
     'PIPE_ADD_DIR': './memory',
+    'PIPE_GAP_MINUTES': '5',
     'MEME_SERVER_PORT': '8801',
     'WEBUI_ENABLED': 'false',
     'WEBUI_HOST': '127.0.0.1',
@@ -116,6 +117,9 @@ def validate_updates(payload, env: dict, inherited: dict) -> tuple[dict, dict]:
             errors[key] = '名称不能超过 60 个字符'
         elif key == 'MASTER_QQ' and (not value.isascii() or not value.isdecimal() or len(value) > 20):
             errors[key] = '请输入 QQ 号；0 表示不指定主人'
+        elif key == 'PIPE_GAP_MINUTES':
+            if not value.isascii() or not value.isdecimal() or not 1 <= int(value) <= 120:
+                errors[key] = '断点间隔应为 1–120 的整数分钟'
         elif key in PORT_FIELDS:
             if not value.isascii() or not value.isdecimal() or not 1 <= int(value) <= 65535:
                 errors[key] = '端口应为 1–65535 的整数'

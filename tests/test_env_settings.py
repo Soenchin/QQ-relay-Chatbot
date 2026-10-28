@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 # Isolate plugin import-time configuration from real memory/ data.
@@ -188,6 +189,40 @@ class SettingsTests(unittest.TestCase):
         response = self.client.get('/api/logs')
         self.assertNotIn('secret-old-key', response.text)
         self.assertNotIn('new-log-secret', response.text)
+
+    def test_gap_interval_default_validation_and_hot_apply(self):
+        self.assertEqual(self.client.get('/api/settings').json()['values']['PIPE_GAP_MINUTES'], '5')
+        bot = SimpleNamespace(pipe_gap_minutes=5)
+        self.client.app.state.relay_bot = bot
+        response = self.save({'PIPE_GAP_MINUTES': '12'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(bot.pipe_gap_minutes, 12)
+        self.assertEqual(response.json()['live_applied'], ['PIPE_GAP_MINUTES'])
+        self.assertFalse(response.json()['restart_required'])
+        self.assertEqual(env_config.read_env_file(self.path)['PIPE_GAP_MINUTES'], '12')
+        for value in ['0', '121', '-1', '1.5', 'NaN', '１２']:
+            before = self.path.read_bytes()
+            self.assertEqual(self.save({'PIPE_GAP_MINUTES': value}).status_code, 422)
+            self.assertEqual(self.path.read_bytes(), before)
+            self.assertEqual(bot.pipe_gap_minutes, 12)
+
+    def test_gap_interval_without_running_bot_or_with_other_changes_needs_restart(self):
+        response = self.save({'PIPE_GAP_MINUTES': '9'})
+        self.assertEqual(response.json()['live_applied'], [])
+        self.assertTrue(response.json()['restart_required'])
+        self.client.app.state.relay_bot = SimpleNamespace(pipe_gap_minutes=9)
+        response = self.save({'PIPE_GAP_MINUTES': '10', 'BOT_NAME': 'next bot'})
+        self.assertEqual(response.json()['live_applied'], ['PIPE_GAP_MINUTES'])
+        self.assertTrue(response.json()['restart_required'])
+
+    def test_gap_hot_apply_respects_actual_os_override(self):
+        bot = SimpleNamespace(pipe_gap_minutes=8)
+        self.client.app.state.relay_bot = bot
+        with patch.object(env_config, 'INHERITED_ENV', {'PIPE_GAP_MINUTES': '8'}):
+            response = self.save({'PIPE_GAP_MINUTES': '20'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(bot.pipe_gap_minutes, 8)
+        self.assertEqual(env_config.read_env_file(self.path)['PIPE_GAP_MINUTES'], '20')
 
     def test_parser_literals_duplicates_and_model_loader(self):
         self.path.write_text('\ufeff# keep\nBOT_NAME=first\nBOT_NAME=last\nCUSTOM=a=b#c\n', encoding='utf-8')
